@@ -80,6 +80,10 @@ class MatchViewModel : ViewModel() {
     private lateinit var fx: SoundFx
     private val rnd = Random(System.nanoTime())
     private val usedIds = HashSet<String>()
+    private var pSeen: Set<String> = emptySet()
+    private var pWrong: Set<String> = emptySet()
+    private val shownNow = LinkedHashSet<String>()
+    private val resultsNow = LinkedHashMap<String, Boolean>()
 
     // Trạng thái trong một câu hỏi
     private var questionStart = 0L
@@ -97,6 +101,8 @@ class MatchViewModel : ViewModel() {
         prefs = p
         fx = f
         solo = config.bots == 0
+        pSeen = p.practiceSeen()
+        pWrong = p.wrong()
         players.clear()
         players.add(PlayerState(0, p.name.ifBlank { "Bạn" }, isBot = false, palette = 0))
         val names = listOf("An", "Bình", "Chi", "Dũng", "Hà", "Khoa", "Linh", "Nam").shuffled(rnd)
@@ -117,6 +123,7 @@ class MatchViewModel : ViewModel() {
     /** Dừng trận khi người chơi thoát giữa chừng. */
     fun stop() {
         job?.cancel()
+        flush()
         if (::fx.isInitialized) fx.stopVoice()
     }
 
@@ -205,10 +212,16 @@ class MatchViewModel : ViewModel() {
         }
     }
 
+    private fun tier(q: Question): Int = when {
+        q.id !in pSeen -> 0
+        q.id in pWrong -> 1
+        else -> 2
+    }
+
     private fun pick(count: Int, levels: List<Int>): List<Question> {
-        var qs = QuestionBank.pick(prefs, count, levels, usedIds)
+        var qs = QuestionBank.pick(count, levels, usedIds) { tier(it) }
         if (qs.size < count) {
-            qs = qs + QuestionBank.pick(prefs, count - qs.size, listOf(1, 2, 3), usedIds + qs.map { it.id })
+            qs = qs + QuestionBank.pick(count - qs.size, listOf(1, 2, 3), usedIds + qs.map { it.id }) { tier(it) }
         }
         usedIds.addAll(qs.map { it.id })
         return qs
@@ -232,7 +245,7 @@ class MatchViewModel : ViewModel() {
         var i = 0
         while (timeLeftMs > 0L && i < qs.size) {
             val q = qs[i]
-            question = q
+            show(q)
             qNo = i + 1
             humanChoice = null
             reveal = false
@@ -240,7 +253,9 @@ class MatchViewModel : ViewModel() {
             questionStart = SystemClock.elapsedRealtime()
             while (timeLeftMs > 0L && humanChoice == null && !skipFlag) delay(40)
             val c = humanChoice
+            if (skipFlag && c == null) result(q, false)
             if (c != null) {
+                result(q, c == q.answer)
                 reveal = true
                 if (c == q.answer) {
                     addScore(0, 10)
@@ -256,7 +271,9 @@ class MatchViewModel : ViewModel() {
         coroutineContext.cancelChildren()
         reveal = false
         question = null
+        fx.stopVoice()
         fx.play("buzz")
+        flush()
         banner = "Hết giờ phần Khởi động!"
         delay(1800)
     }
@@ -268,13 +285,13 @@ class MatchViewModel : ViewModel() {
         for ((i, q) in qs.withIndex()) {
             qNo = i + 1
             roundText = "Câu ${i + 1}/${qs.size}"
-            question = q
             humanChoice = null
             humanAnswerAt = -1L
             reveal = false
             locked = emptySet()
             botAnswers.clear()
             banner = "Trả lời đúng càng nhanh, điểm càng cao"
+            show(q)
             coroutineScope {
                 val start = SystemClock.elapsedRealtime()
                 questionStart = start
@@ -296,6 +313,8 @@ class MatchViewModel : ViewModel() {
                 coroutineContext.cancelChildren()
             }
             reveal = true
+            fx.stopVoice()
+            result(q, humanChoice == q.answer)
             val answers = ArrayList<Triple<Int, Int, Long>>()
             humanChoice?.let { answers.add(Triple(0, it, humanAnswerAt)) }
             botAnswers.forEach { (id, a) -> answers.add(Triple(id, a.first, a.second)) }
@@ -324,6 +343,7 @@ class MatchViewModel : ViewModel() {
         }
         question = null
         reveal = false
+        flush()
     }
 
     /** Phần 3 – Về Đích: xoay vòng 5 vòng, 10 giây/câu, người khác được giành quyền. */
@@ -341,7 +361,6 @@ class MatchViewModel : ViewModel() {
                 qNo = k
                 roundText = "Vòng $r/$rounds"
                 turnId = pid
-                question = q
                 humanChoice = null
                 reveal = false
                 locked = emptySet()
@@ -354,6 +373,7 @@ class MatchViewModel : ViewModel() {
                 } else {
                     "Lượt của ${nameOf(pid)} · bạn có thể chọn trước để giành quyền"
                 }
+                show(q)
                 coroutineScope {
                     val start = SystemClock.elapsedRealtime()
                     questionStart = start
@@ -389,6 +409,9 @@ class MatchViewModel : ViewModel() {
                     coroutineContext.cancelChildren()
                 }
                 reveal = true
+                fx.stopVoice()
+                val hc = humanChoice
+                if (pid == 0) result(q, hc == q.answer) else if (hc != null) result(q, hc == q.answer)
                 val msgs = ArrayList<String>()
                 val mc = mainChoice
                 var someoneRight = false
@@ -426,6 +449,7 @@ class MatchViewModel : ViewModel() {
     }
 
     private fun finish() {
+        flush()
         val max = players.maxOf { it.score }
         winners = players.filter { it.score == max }.map { it.id }.toSet()
         prefs.played = prefs.played + 1
@@ -446,6 +470,27 @@ class MatchViewModel : ViewModel() {
     }
 
     // ------------------------------------------------------------------ Tiện ích
+
+    /** Hiện câu hỏi mới: ghi nhận đã gặp và đọc to câu hỏi + đáp án. */
+    private fun show(q: Question) {
+        question = q
+        shownNow.add(q.id)
+        if (prefs.readQuestions) {
+            val o = q.options
+            fx.say("${q.text}. A: ${o[0]}. B: ${o[1]}. C: ${o[2]}. D: ${o[3]}.")
+        }
+    }
+
+    private fun result(q: Question, ok: Boolean) {
+        resultsNow[q.id] = ok
+    }
+
+    private fun flush() {
+        if (!::prefs.isInitialized) return
+        prefs.savePractice(shownNow, resultsNow)
+        shownNow.clear()
+        resultsNow.clear()
+    }
 
     private fun addScore(id: Int, delta: Int) {
         val i = players.indexOfFirst { it.id == id }

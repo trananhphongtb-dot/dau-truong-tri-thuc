@@ -286,7 +286,9 @@ private fun MeTab(prefs: Prefs, fx: SoundFx) {
     var name by remember { mutableStateOf(prefs.name) }
     var sound by remember { mutableStateOf(prefs.soundOn) }
     var voice by remember { mutableStateOf(prefs.voiceOn) }
-    var seen by remember { mutableIntStateOf(prefs.seen().size) }
+    var seen by remember { mutableIntStateOf(prefs.practiceSeen().size) }
+    var wrongN by remember { mutableIntStateOf(prefs.wrong().size) }
+    var readQ by remember { mutableStateOf(prefs.readQuestions) }
 
     TabColumn {
         GlassCard(Modifier.fillMaxWidth()) {
@@ -327,6 +329,7 @@ private fun MeTab(prefs: Prefs, fx: SoundFx) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 SettingRow("Âm thanh hiệu ứng", sound) { sound = it; prefs.soundOn = it }
                 SettingRow("Giọng đọc chào mừng", voice) { voice = it; prefs.voiceOn = it }
+                SettingRow("Đọc câu hỏi và đáp án", readQ) { readQ = it; prefs.readQuestions = it }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         (if (fx.voiceOk) "✓ " else "⚠ ") + fx.voiceStatus,
@@ -357,12 +360,13 @@ private fun MeTab(prefs: Prefs, fx: SoundFx) {
         GlassCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Câu hỏi đã gặp", color = TextMain, fontWeight = FontWeight.SemiBold)
-                    Text("$seen / ${QuestionBank.all.size}", color = TextMuted, fontSize = 13.sp)
+                    Text("Câu đã gặp khi luyện tập", color = TextMain, fontWeight = FontWeight.SemiBold)
+                    Text("$seen / ${QuestionBank.all.size} · cần ôn lại: $wrongN", color = TextMuted, fontSize = 13.sp)
                 }
                 TextButton(onClick = {
-                    prefs.resetSeen()
+                    prefs.resetPractice()
                     seen = 0
+                    wrongN = 0
                     Toast.makeText(ctx, "Đã làm mới danh sách câu hỏi", Toast.LENGTH_SHORT).show()
                 }) { Text("Làm mới", color = Gold, fontWeight = FontWeight.Bold) }
             }

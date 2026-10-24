@@ -39,16 +39,29 @@ class Prefs(context: Context) {
         get() = sp.getInt("bestSolo", 0)
         set(value) { sp.edit().putInt("bestSolo", value).apply() }
 
-    fun seen(): MutableSet<String> = HashSet(sp.getStringSet("seen", emptySet()) ?: emptySet())
+    var readQuestions: Boolean
+        get() = sp.getBoolean("readQ", true)
+        set(value) { sp.edit().putBoolean("readQ", value).apply() }
 
-    fun addSeen(ids: Collection<String>) {
-        val s = seen()
-        s.addAll(ids)
-        sp.edit().putStringSet("seen", s).apply()
+    private fun strSet(key: String): MutableSet<String> = HashSet(sp.getStringSet(key, emptySet()) ?: emptySet())
+
+    /** Câu đã gặp khi luyện tập / thi với máy (riêng, không ảnh hưởng thi thật). */
+    fun practiceSeen(): MutableSet<String> = strSet("pseen")
+
+    /** Câu đã trả lời sai hoặc bỏ qua khi luyện tập, dùng lại khi hết câu mới. */
+    fun wrong(): MutableSet<String> = strSet("wrong")
+
+    /** Lưu kết quả luyện tập: id → true nếu trả lời đúng. */
+    fun savePractice(shown: Collection<String>, results: Map<String, Boolean>) {
+        if (shown.isEmpty() && results.isEmpty()) return
+        val seen = practiceSeen().apply { addAll(shown); addAll(results.keys) }
+        val wr = wrong()
+        for ((id, ok) in results) if (ok) wr.remove(id) else wr.add(id)
+        sp.edit().putStringSet("pseen", seen).putStringSet("wrong", wr).apply()
     }
 
-    fun resetSeen() {
-        sp.edit().remove("seen").apply()
+    fun resetPractice() {
+        sp.edit().remove("pseen").remove("wrong").remove("seen").apply()
     }
 }
 
@@ -83,24 +96,20 @@ object QuestionBank {
     }
 
     /**
-     * Chọn câu hỏi trộn đều các lĩnh vực, ưu tiên câu người chơi chưa gặp.
-     * Các mức độ khó trong [levels] được ưu tiên theo thứ tự liệt kê.
+     * Chọn câu hỏi trộn đều các lĩnh vực.
+     * [tier] nhỏ hơn được ưu tiên trước (0 = câu mới, 1 = câu từng sai, 2 = câu đã đúng);
+     * trong cùng một bậc, mức độ khó trong [levels] được ưu tiên theo thứ tự liệt kê.
      */
-    fun pick(prefs: Prefs, count: Int, levels: List<Int>, exclude: Set<String> = emptySet()): List<Question> {
-        val seen = prefs.seen()
-        if (seen.size > all.size * 0.9) prefs.resetSeen()
+    fun pick(count: Int, levels: List<Int>, exclude: Set<String>, tier: (Question) -> Int): List<Question> {
         val usable = all.filter { it.level in levels && it.id !in exclude }
         val byField = usable.groupBy { it.field }
         val pools = HashMap<String, ArrayDeque<Question>>()
         for ((field, qs) in byField) {
             val ordered = ArrayList<Question>()
-            for (lv in levels) {
-                val ofLevel = qs.filter { it.level == lv }
-                ordered.addAll(ofLevel.filter { it.id !in seen }.shuffled())
-            }
-            for (lv in levels) {
-                val ofLevel = qs.filter { it.level == lv }
-                ordered.addAll(ofLevel.filter { it.id in seen }.shuffled())
+            for (t in 0..2) {
+                for (lv in levels) {
+                    ordered.addAll(qs.filter { it.level == lv && tier(it) == t }.shuffled())
+                }
             }
             pools[field] = ArrayDeque(ordered)
         }
@@ -112,7 +121,6 @@ object QuestionBank {
             idx++
             if (deque != null && deque.isNotEmpty()) out.add(deque.removeFirst())
         }
-        prefs.addSeen(out.map { it.id })
         return out.shuffled()
     }
 }
