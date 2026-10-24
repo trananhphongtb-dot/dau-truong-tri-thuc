@@ -45,12 +45,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import vn.dautruongtrithuc.audio.SoundFx
 import vn.dautruongtrithuc.data.Prefs
 import vn.dautruongtrithuc.data.QuestionBank
 import vn.dautruongtrithuc.game.MatchConfig
 
 @Composable
-fun HomeScreen(prefs: Prefs, onStart: (MatchConfig) -> Unit) {
+fun HomeScreen(prefs: Prefs, fx: SoundFx, onStart: (MatchConfig) -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Column(
         Modifier
@@ -64,7 +65,7 @@ fun HomeScreen(prefs: Prefs, onStart: (MatchConfig) -> Unit) {
             when (tab) {
                 0 -> PlayTab(onStart)
                 1 -> RankTab()
-                else -> MeTab(prefs)
+                else -> MeTab(prefs, fx)
             }
         }
         BottomTabs(tab) { tab = it }
@@ -280,7 +281,7 @@ private fun RankTab() {
 }
 
 @Composable
-private fun MeTab(prefs: Prefs) {
+private fun MeTab(prefs: Prefs, fx: SoundFx) {
     val ctx = LocalContext.current
     var name by remember { mutableStateOf(prefs.name) }
     var sound by remember { mutableStateOf(prefs.soundOn) }
@@ -326,6 +327,31 @@ private fun MeTab(prefs: Prefs) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 SettingRow("Âm thanh hiệu ứng", sound) { sound = it; prefs.soundOn = it }
                 SettingRow("Giọng đọc chào mừng", voice) { voice = it; prefs.voiceOn = it }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        (if (fx.voiceOk) "✓ " else "⚠ ") + fx.voiceStatus,
+                        color = if (fx.voiceOk) GreenOk else GoldLight,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (fx.voiceOk) {
+                        TextButton(onClick = { fx.say("Chào mừng bạn đến với Đấu Trường Trí Thức", force = true) }) {
+                            Text("Nghe thử", color = Gold, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        TextButton(onClick = { fx.openVoiceSetup(ctx) }) {
+                            Text("Cài giọng", color = Gold, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                if (!fx.voiceOk) {
+                    Text(
+                        "Cài \"Dịch vụ lời nói của Google\" và tải gói tiếng Việt, rồi chọn nó làm bộ đọc mặc định. Quay lại app sẽ tự nhận.",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                }
             }
         }
         GlassCard(Modifier.fillMaxWidth()) {

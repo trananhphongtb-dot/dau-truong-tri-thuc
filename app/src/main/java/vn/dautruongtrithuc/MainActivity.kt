@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
                 var matchKey by remember { mutableIntStateOf(0) }
                 val current = config
                 if (current == null) {
-                    HomeScreen(prefs) {
+                    HomeScreen(prefs, fx) {
                         matchKey++
                         config = it
                     }
@@ -53,6 +53,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::fx.isInitialized) fx.recheck()
     }
 
     override fun onDestroy() {
