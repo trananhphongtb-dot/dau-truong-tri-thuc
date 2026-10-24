@@ -229,7 +229,7 @@ class MatchViewModel : ViewModel() {
 
     /** Phần 1 – Khởi động: 2 phút, trả lời liên tục, đúng +10, được bỏ qua. */
     private suspend fun part1() = coroutineScope {
-        val qs = pick(60, listOf(1, 2))
+        val qs = pick(60, listOf(1, 2))  // mức 1; hết câu mới mức 1 thì lấy câu mới mức 2
         qTotal = qs.size
         roundText = "2 phút"
         val clock = timer(120_000L) { false }
@@ -280,7 +280,7 @@ class MatchViewModel : ViewModel() {
 
     /** Phần 2 – Đấu Trí: 10 câu, 15 giây; đúng nhanh nhất +30, nhì +20, ba +10. */
     private suspend fun part2() {
-        val qs = pick(10, listOf(2, 3))
+        val qs = pick(10, listOf(2))
         qTotal = qs.size
         for ((i, q) in qs.withIndex()) {
             qNo = i + 1
@@ -350,7 +350,7 @@ class MatchViewModel : ViewModel() {
     private suspend fun part3() {
         val rounds = 5
         val order = players.map { it.id }
-        val qs = pick(rounds * order.size, listOf(3, 2))
+        val qs = pick(rounds * order.size, listOf(3))
         qTotal = qs.size
         var k = 0
         for (r in 1..rounds) {

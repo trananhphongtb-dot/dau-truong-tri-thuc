@@ -94,7 +94,7 @@ fun ResultScreen(
                 Text("$rank", color = if (win) Gold else TextMuted, fontSize = 20.sp, fontWeight = FontWeight.Black,
                     modifier = Modifier.width(28.dp))
                 Box {
-                    Avatar(p.name, p.palette, size = 44.dp, ring = win)
+                    Avatar(p.name, p.palette, size = 44.dp, ring = win, rating = if (p.isBot) "BOT" else "100")
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {

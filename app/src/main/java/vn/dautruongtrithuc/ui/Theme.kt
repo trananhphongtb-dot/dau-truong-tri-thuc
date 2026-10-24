@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -75,23 +76,66 @@ fun AppTheme(content: @Composable () -> Unit) {
     )
 }
 
+/**
+ * Ảnh đại diện. [rating] hiện ở góc dưới bên phải (đè một phần ảnh).
+ * [friend]: null = không hiện nút; false = hiện dấu + (bấm để kết bạn); true = đã là bạn (dấu ✓).
+ */
 @Composable
-fun Avatar(name: String, palette: Int, size: Dp, ring: Boolean = false) {
+fun Avatar(
+    name: String,
+    palette: Int,
+    size: Dp,
+    ring: Boolean = false,
+    rating: String? = null,
+    friend: Boolean? = null,
+    onAddFriend: (() -> Unit)? = null,
+) {
     val p = AvatarPalettes[palette % AvatarPalettes.size]
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(Brush.linearGradient(listOf(p.first, p.second)))
-            .border(if (ring) 3.dp else 2.dp, if (ring) GoldMid else Color.White.copy(alpha = 0.25f), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = name.trim().take(1).uppercase(),
-            color = p.third,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = (size.value * 0.42f).sp,
-        )
+    Box(Modifier.size(size)) {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(p.first, p.second)))
+                .border(if (ring) 3.dp else 2.dp, if (ring) GoldMid else Color.White.copy(alpha = 0.25f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = name.trim().take(1).uppercase(),
+                color = p.third,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = (size.value * 0.42f).sp,
+            )
+        }
+        if (rating != null) {
+            Pill(
+                rating,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = size * 0.22f, y = 2.dp),
+            )
+        }
+        if (friend != null) {
+            val badge = (size.value * 0.36f).coerceIn(16f, 24f).dp
+            Box(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = -badge * 0.25f, y = -badge * 0.25f)
+                    .size(badge)
+                    .clip(CircleShape)
+                    .background(if (friend) GreenOk else Gold)
+                    .border(1.5.dp, Navy0, CircleShape)
+                    .clickable(enabled = !friend && onAddFriend != null) { onAddFriend?.invoke() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (friend) "✓" else "+",
+                    color = if (friend) Color.White else Ink,
+                    fontSize = (badge.value * 0.62f).sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+        }
     }
 }
 

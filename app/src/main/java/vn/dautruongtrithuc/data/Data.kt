@@ -60,6 +60,21 @@ class Prefs(context: Context) {
         sp.edit().putStringSet("pseen", seen).putStringSet("wrong", wr).apply()
     }
 
+    /** Danh sách bạn bè (tên hiển thị); kết bạn một chiều, không cần bên kia đồng ý. */
+    fun friends(): List<String> = (sp.getStringSet("friends", emptySet()) ?: emptySet()).sorted()
+
+    fun addFriend(name: String) {
+        val f = HashSet(sp.getStringSet("friends", emptySet()) ?: emptySet())
+        f.add(name)
+        sp.edit().putStringSet("friends", f).apply()
+    }
+
+    fun removeFriend(name: String) {
+        val f = HashSet(sp.getStringSet("friends", emptySet()) ?: emptySet())
+        f.remove(name)
+        sp.edit().putStringSet("friends", f).apply()
+    }
+
     fun resetPractice() {
         sp.edit().remove("pseen").remove("wrong").remove("seen").apply()
     }

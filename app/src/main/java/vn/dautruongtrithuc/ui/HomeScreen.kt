@@ -1,6 +1,7 @@
 package vn.dautruongtrithuc.ui
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,6 +54,16 @@ import vn.dautruongtrithuc.game.MatchConfig
 @Composable
 fun HomeScreen(prefs: Prefs, fx: SoundFx, onStart: (MatchConfig) -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var settings by rememberSaveable { mutableStateOf(false) }
+    // Tăng mỗi khi đổi tên để thanh trên cùng vẽ lại
+    var nameVersion by remember { mutableIntStateOf(0) }
+
+    if (settings) {
+        BackHandler { settings = false }
+        SettingsScreen(prefs, fx, onBack = { settings = false })
+        return
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -60,12 +71,12 @@ fun HomeScreen(prefs: Prefs, fx: SoundFx, onStart: (MatchConfig) -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        TopBar(prefs)
+        TopBar(prefs, nameVersion)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> PlayTab(onStart)
                 1 -> RankTab()
-                else -> MeTab(prefs, fx)
+                else -> MeTab(prefs, onOpenSettings = { settings = true }, onNameChanged = { nameVersion++ })
             }
         }
         BottomTabs(tab) { tab = it }
@@ -73,20 +84,17 @@ fun HomeScreen(prefs: Prefs, fx: SoundFx, onStart: (MatchConfig) -> Unit) {
 }
 
 @Composable
-private fun TopBar(prefs: Prefs) {
+private fun TopBar(prefs: Prefs, nameVersion: Int) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 26.dp, top = 14.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("ĐẤU TRƯỜNG", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-            Text("TRÍ THỨC", color = Gold, fontSize = 26.sp, fontWeight = FontWeight.Black)
+            Text("ĐẤU TRƯỜNG", color = GoldLight, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+            Text("TRÍ THỨC", color = Gold, fontSize = 36.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Pill("100")
-            Spacer(Modifier.height(2.dp))
-            Avatar(prefs.name, 0, size = 42.dp, ring = true)
-        }
+        // nameVersion chỉ để buộc vẽ lại khi đổi tên
+        Avatar(if (nameVersion >= 0) prefs.name else "", 0, size = 50.dp, ring = true, rating = "100")
     }
 }
 
@@ -129,6 +137,8 @@ private fun TabColumn(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
+// ============================================================ Tab Thi đấu
+
 @Composable
 private fun PlayTab(onStart: (MatchConfig) -> Unit) {
     val ctx = LocalContext.current
@@ -156,23 +166,11 @@ private fun PlayTab(onStart: (MatchConfig) -> Unit) {
         Text("PHÒNG ĐANG CHỜ", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
         GlassCard(Modifier.fillMaxWidth()) {
             Text(
-                "Thi đấu trực tuyến sẽ mở khi có đăng nhập Google.\nTrong lúc chờ, anh em luyện tập trước nhé!",
+                "Thi đấu trực tuyến sẽ mở khi có đăng nhập Google.\nTrong lúc chờ, mình luyện tập trước nhé!",
                 color = TextMuted,
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
             )
-        }
-        GlassCard(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("📚", fontSize = 26.sp)
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("${QuestionBank.all.size} câu hỏi · ${QuestionBank.fieldCount} lĩnh vực",
-                        color = TextMain, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("Toán, Lý, Hóa, Sinh, Văn, Sử, Địa, Anh, Tin, Danh nhân, Sự kiện, Thường thức",
-                        color = TextMuted, fontSize = 12.sp, lineHeight = 17.sp)
-                }
-            }
         }
         Spacer(Modifier.height(8.dp))
     }
@@ -247,8 +245,11 @@ private fun ChoiceRow(items: List<String>, selected: Int, onSelect: (Int) -> Uni
     }
 }
 
+// ============================================================ Tab Xếp hạng
+
 @Composable
 private fun RankTab() {
+    var period by rememberSaveable { mutableIntStateOf(0) }
     TabColumn {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Tất cả", "Tuần", "Tháng", "Năm").forEachIndexed { i, s ->
@@ -257,9 +258,10 @@ private fun RankTab() {
                         .weight(1f)
                         .height(36.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(if (i == 0) GoldBrush else BlueBtnBrush),
+                        .background(if (i == period) GoldBrush else BlueBtnBrush)
+                        .clickable { period = i },
                     contentAlignment = Alignment.Center,
-                ) { Text(s, color = if (i == 0) Ink else TextMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                ) { Text(s, color = if (i == period) Ink else TextMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
             }
         }
         GlassCard(Modifier.fillMaxWidth()) {
@@ -269,7 +271,7 @@ private fun RankTab() {
                 Text("Bảng xếp hạng", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Xếp hạng sẽ hiển thị khi có đăng nhập Google và thi đấu trực tuyến.\nMỗi người khởi đầu với 100 điểm.",
+                    "Xếp hạng sẽ hiển thị khi có đăng nhập Google và thi đấu trực tuyến.\nMỗi người khởi đầu với 100 điểm.\nBấm dấu + trên ảnh người chơi để kết bạn.",
                     color = TextMuted,
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
@@ -280,51 +282,169 @@ private fun RankTab() {
     }
 }
 
+// ============================================================ Tab Tôi
+
 @Composable
-private fun MeTab(prefs: Prefs, fx: SoundFx) {
-    val ctx = LocalContext.current
+private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () -> Unit) {
     var name by remember { mutableStateOf(prefs.name) }
-    var sound by remember { mutableStateOf(prefs.soundOn) }
-    var voice by remember { mutableStateOf(prefs.voiceOn) }
-    var seen by remember { mutableIntStateOf(prefs.practiceSeen().size) }
-    var wrongN by remember { mutableIntStateOf(prefs.wrong().size) }
-    var readQ by remember { mutableStateOf(prefs.readQuestions) }
+    var editing by remember { mutableStateOf(false) }
+    var friends by remember { mutableStateOf(prefs.friends()) }
+    var removing by remember { mutableStateOf<String?>(null) }
 
     TabColumn {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Hồ sơ", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x22FFFFFF))
+                    .clickable(onClick = onOpenSettings),
+                contentAlignment = Alignment.Center,
+            ) { Text("⚙", color = Gold, fontSize = 22.sp) }
+        }
         GlassCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Pill("100")
-                    Spacer(Modifier.height(2.dp))
-                    Avatar(name.ifBlank { "B" }, 0, size = 60.dp, ring = true)
+                Avatar(name.ifBlank { "B" }, 0, size = 64.dp, ring = true, rating = "100")
+                Spacer(Modifier.width(22.dp))
+                if (editing) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it.take(16) },
+                        label = { Text("Tên hiển thị") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Gold,
+                            unfocusedBorderColor = Color(0x558CB4FF),
+                            focusedLabelColor = Gold,
+                            unfocusedLabelColor = TextMuted,
+                            focusedTextColor = TextMain,
+                            unfocusedTextColor = TextMain,
+                            cursorColor = Gold,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        name = name.trim().ifBlank { "Bạn" }
+                        prefs.name = name
+                        editing = false
+                        onNameChanged()
+                    }) { Text("Lưu", color = Gold, fontWeight = FontWeight.Black) }
+                } else {
+                    Column(Modifier.weight(1f)) {
+                        OneLine(name, size = 20, weight = FontWeight.Black)
+                        Text("Khách · chưa đăng nhập", color = TextMuted, fontSize = 12.sp)
+                    }
+                    TextButton(onClick = { editing = true }) { Text("✎ Sửa", color = Gold, fontWeight = FontWeight.Bold) }
                 }
-                Spacer(Modifier.width(14.dp))
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = {
-                        name = it.take(16)
-                        prefs.name = name.trim().ifBlank { "Bạn" }
-                    },
-                    label = { Text("Tên hiển thị") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Gold,
-                        unfocusedBorderColor = Color(0x558CB4FF),
-                        focusedLabelColor = Gold,
-                        unfocusedLabelColor = TextMuted,
-                        focusedTextColor = TextMain,
-                        unfocusedTextColor = TextMain,
-                        cursorColor = Gold,
-                    ),
-                    modifier = Modifier.weight(1f),
-                )
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Stat("Số trận", "${prefs.played}", Modifier.weight(1f))
-            Stat("Thắng", "${prefs.wins}", Modifier.weight(1f))
-            Stat("Kỷ lục", "${prefs.bestSolo}", Modifier.weight(1f))
+            Stat("Điểm xếp hạng", "100", Modifier.weight(1f))
+            Stat("Hạng", "—", Modifier.weight(1f))
+            Stat("Thắng / Trận", "${prefs.wins}/${prefs.played}", Modifier.weight(1f))
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("BẠN BÈ", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
+                modifier = Modifier.weight(1f))
+            Text("${friends.size}", color = Gold, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        if (friends.isEmpty()) {
+            GlassCard(Modifier.fillMaxWidth()) {
+                Text(
+                    "Chưa có bạn bè.\nKhi thi trực tuyến, bấm dấu + ở góc ảnh người chơi là thêm bạn ngay.",
+                    color = TextMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
+            }
+        } else {
+            friends.forEachIndexed { i, f ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0x14FFFFFF))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Avatar(f, i + 1, size = 40.dp, friend = true)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        OneLine(f, size = 15, weight = FontWeight.Bold)
+                        Text("Ngoại tuyến", color = TextMuted, fontSize = 12.sp)
+                    }
+                    TextButton(onClick = { removing = f }) { Text("Bỏ", color = TextMuted) }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+
+    val r = removing
+    if (r != null) {
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            containerColor = Navy1,
+            title = { Text("Bỏ kết bạn?", color = TextMain, fontWeight = FontWeight.Bold) },
+            text = { Text("Xóa $r khỏi danh sách bạn bè.", color = TextMuted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    prefs.removeFriend(r)
+                    friends = prefs.friends()
+                    removing = null
+                }) { Text("Bỏ", color = RedBad, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Thôi", color = Gold) } },
+        )
+    }
+}
+
+@Composable
+private fun Stat(label: String, value: String, modifier: Modifier) {
+    GlassCard(modifier) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, color = Gold, fontSize = 22.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(label, color = TextMuted, fontSize = 11.sp, maxLines = 1)
+        }
+    }
+}
+
+// ============================================================ Màn Cài đặt
+
+@Composable
+private fun SettingsScreen(prefs: Prefs, fx: SoundFx, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    var sound by remember { mutableStateOf(prefs.soundOn) }
+    var voice by remember { mutableStateOf(prefs.voiceOn) }
+    var readQ by remember { mutableStateOf(prefs.readQuestions) }
+    var seen by remember { mutableIntStateOf(prefs.practiceSeen().size) }
+    var wrongN by remember { mutableIntStateOf(prefs.wrong().size) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(ScreenBrush)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x22FFFFFF))
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center,
+            ) { Text("‹", color = TextMain, fontSize = 26.sp, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.width(12.dp))
+            Text("Cài đặt", color = Gold, fontSize = 24.sp, fontWeight = FontWeight.Black)
+        }
+
+        Text("ÂM THANH", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
         GlassCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 SettingRow("Âm thanh hiệu ứng", sound) { sound = it; prefs.soundOn = it }
@@ -357,6 +477,8 @@ private fun MeTab(prefs: Prefs, fx: SoundFx) {
                 }
             }
         }
+
+        Text("CÂU HỎI", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
         GlassCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -371,26 +493,22 @@ private fun MeTab(prefs: Prefs, fx: SoundFx) {
                 }) { Text("Làm mới", color = Gold, fontWeight = FontWeight.Bold) }
             }
         }
-        GlassCard(Modifier.fillMaxWidth()) {
-            Column {
-                Text("Bạn bè", color = TextMain, fontWeight = FontWeight.SemiBold)
-                Text("Kết bạn từ lịch sử trận đấu khi thi trực tuyến (sắp có).", color = TextMuted, fontSize = 13.sp)
-            }
-        }
-        Text("Phiên bản 0.1.0 · bản chơi thử ngoại tuyến", color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp,
-            modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
+
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Phiên bản ${appVersion(ctx)} · bản chơi thử ngoại tuyến",
+            color = TextMuted.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
-@Composable
-private fun Stat(label: String, value: String, modifier: Modifier) {
-    GlassCard(modifier) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, color = Gold, fontSize = 22.sp, fontWeight = FontWeight.Black)
-            Text(label, color = TextMuted, fontSize = 12.sp)
-        }
-    }
+private fun appVersion(ctx: android.content.Context): String = try {
+    ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
+} catch (e: Exception) {
+    ""
 }
 
 @Composable

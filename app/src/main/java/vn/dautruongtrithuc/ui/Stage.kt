@@ -64,7 +64,7 @@ fun Stage(
             else -> listOf(0.13f, 0.38f, 0.62f, 0.87f)
         }
         val podW = 76.dp
-        val podH = 118.dp
+        val podH = 104.dp
         players.forEachIndexed { i, p ->
             val x = xs.getOrElse(i) { 0.5f }
             val edge = abs(x - 0.5f) * 2f
@@ -84,15 +84,13 @@ fun Stage(
 @Composable
 private fun Podium(player: PlayerState, isTurn: Boolean, isLocked: Boolean, modifier: Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Pill(if (player.isBot) "BOT" else "100")
-        Spacer(Modifier.height(2.dp))
         Box {
-            Avatar(player.name, player.palette, size = 40.dp, ring = isTurn)
+            Avatar(player.name, player.palette, size = 40.dp, ring = isTurn, rating = if (player.isBot) "BOT" else "100")
             if (isLocked) {
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .offset(x = 22.dp, y = (-4).dp)
+                        .offset(x = 30.dp, y = (-10).dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Navy1)
                         .border(1.dp, Gold, RoundedCornerShape(8.dp))
