@@ -123,6 +123,8 @@ private fun Podium(
                 onAddFriend = onAddFriend,
                 art = player.avatar,
                 cap = true,
+                uid = player.uid,
+                me = player.id == 0,
             )
             if (hasStar) {
                 Box(

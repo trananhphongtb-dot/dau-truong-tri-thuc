@@ -652,6 +652,8 @@ private fun Lobby(
                         onAddFriend = { onAddFriend(p) },
                         art = p.avatar,
                         cap = true,
+                        uid = p.uid,
+                        me = p.id == 0,
                     )
                     Spacer(Modifier.width(26.dp))
                     Column(Modifier.weight(1f)) {
@@ -710,7 +712,7 @@ private fun Lobby(
                         val free = u.online && !u.inMatch
                         val inRoom = players.any { it.uid == u.uid }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Avatar(u.name, 1, size = 38.dp, art = u.avatar)
+                            Avatar(u.name, 1, size = 38.dp, art = u.avatar, uid = u.uid)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 OneLine(u.name, size = 15, weight = FontWeight.Bold)

@@ -102,11 +102,8 @@ object Personas {
                     nightOwl = r.nextBoolean(),
                     avatar = Random(out.size * 977 + 13).let { ar ->
                         val k = ar.nextInt(100)
-                        when {
-                            k < 40 -> ar.nextInt(0, 9999)
-                            k < 80 -> 10000 + ar.nextInt(15)
-                            else -> -1
-                        }
+                        // Như người thật: nhiều người không để ảnh, số còn lại để ảnh con vật/cảnh vật
+                        if (k < 55) -1 else 10000 + ar.nextInt(15)
                     },
                 )
             )

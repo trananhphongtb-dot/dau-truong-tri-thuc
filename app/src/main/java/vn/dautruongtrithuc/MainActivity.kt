@@ -27,6 +27,7 @@ import vn.dautruongtrithuc.game.MatchConfig
 import vn.dautruongtrithuc.ui.AppTheme
 import vn.dautruongtrithuc.ui.Gold
 import vn.dautruongtrithuc.ui.HomeScreen
+import vn.dautruongtrithuc.ui.LoginScreen
 import vn.dautruongtrithuc.ui.MatchScreen
 import vn.dautruongtrithuc.ui.Navy1
 import vn.dautruongtrithuc.ui.TextMuted
@@ -121,7 +122,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (current == null) {
+                if (!Net.signedIn) {
+                    LoginScreen()
+                } else if (current == null) {
                     HomeScreen(prefs, fx) {
                         matchKey++
                         config = it

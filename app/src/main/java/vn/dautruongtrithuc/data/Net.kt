@@ -71,6 +71,7 @@ object Net {
 
     fun init(context: Context, p: Prefs) {
         prefs = p
+        Photos.init(p)
         try {
             ref(".info/serverTimeOffset").addValueEventListener(simple { serverOffset = it.getValue(Long::class.java) ?: 0L })
             ref("config/fill").addValueEventListener(simple { fillEnabled = it.getValue(Boolean::class.java) ?: true })
@@ -100,6 +101,9 @@ object Net {
                     g.displayName?.takeIf { it.isNotBlank() }?.let { p.name = it.take(16) }
                 }
                 onSignedIn(user.uid)
+                if (p != null && p.photoMode == "google" && p.photo.isBlank()) {
+                    Photos.fromGoogle()?.let { Photos.setMine(p, it, "google") }
+                }
                 null
             } else {
                 "Không nhận được tài khoản Google"
@@ -145,6 +149,7 @@ object Net {
         val m = hashMapOf<String, Any>(
             "name" to p.name.ifBlank { "Người chơi" },
             "avatar" to p.avatar,
+            "photo" to p.photo,
             "rating" to l.rating,
             "wins" to p.wins,
             "played" to p.played,

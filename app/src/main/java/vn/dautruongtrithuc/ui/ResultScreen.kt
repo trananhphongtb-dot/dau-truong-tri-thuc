@@ -79,7 +79,7 @@ fun ResultScreen(
                 Spacer(Modifier.height(8.dp))
                 Text("Bạn đạt ${me.score} điểm", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(30.dp))
-                Avatar(me.name, me.palette, size = 96.dp, art = me.avatar, laurel = true)
+                Avatar(me.name, me.palette, size = 96.dp, art = me.avatar, laurel = true, me = true)
                 Spacer(Modifier.height(30.dp))
             } else {
                 Spacer(Modifier.height(18.dp))
@@ -160,6 +160,8 @@ private fun PodiumRow(
                     art = p.avatar,
                     cap = !win,
                     laurel = win,
+                    uid = p.uid,
+                    me = p.id == 0,
                     ring = p.id == 0,
                 )
                 Spacer(Modifier.height(10.dp))

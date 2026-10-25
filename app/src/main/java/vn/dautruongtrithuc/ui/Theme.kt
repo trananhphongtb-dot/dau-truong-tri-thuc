@@ -96,7 +96,10 @@ fun Avatar(
     art: Int = -1,
     cap: Boolean = false,
     laurel: Boolean = false,
+    uid: String? = null,          // người chơi thật: lấy ảnh từ máy chủ
+    me: Boolean = false,          // chính mình: ảnh Google / thư viện
 ) {
+    val photo = if (me) vn.dautruongtrithuc.data.Photos.mine else vn.dautruongtrithuc.data.Photos.of(uid)
     val p = AvatarPalettes[palette % AvatarPalettes.size]
     Box(Modifier.size(size)) {
         if (laurel) AvatarArt.Laurel(Modifier.matchParentSize())
@@ -108,7 +111,14 @@ fun Avatar(
                 .border(if (ring) 3.dp else 2.dp, if (ring) GoldMid else Color.White.copy(alpha = 0.25f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            if (art >= 0) {
+            if (photo != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = photo,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+            } else if (art >= 0) {
                 AvatarArt.Draw(art, Modifier.matchParentSize())
             } else Text(
                 text = name.trim().take(1).uppercase(),

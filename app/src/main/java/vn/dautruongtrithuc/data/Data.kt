@@ -27,6 +27,16 @@ class Prefs(context: Context) {
         get() = sp.getInt("avatar", -1)
         set(value) { sp.edit().putInt("avatar", value).apply() }
 
+    /** Ảnh đại diện thật dạng base64 ("" = chỉ hiện chữ cái). */
+    var photo: String
+        get() = sp.getString("photo", "") ?: ""
+        set(value) { sp.edit().putString("photo", value).apply() }
+
+    /** Nguồn ảnh: google | gallery | letter. */
+    var photoMode: String
+        get() = sp.getString("photoMode", "google") ?: "google"
+        set(value) { sp.edit().putString("photoMode", value).apply() }
+
     var soundOn: Boolean
         get() = sp.getBoolean("sound", true)
         set(value) { sp.edit().putBoolean("sound", value).apply() }
