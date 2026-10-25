@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +49,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import vn.dautruongtrithuc.audio.SoundFx
+import vn.dautruongtrithuc.data.BoardRow
+import vn.dautruongtrithuc.data.Leaderboard
+import vn.dautruongtrithuc.data.OnlineConfig
+import vn.dautruongtrithuc.data.Personas
 import vn.dautruongtrithuc.data.Prefs
 import vn.dautruongtrithuc.data.QuestionBank
 import vn.dautruongtrithuc.game.MatchConfig
@@ -75,7 +81,7 @@ fun HomeScreen(prefs: Prefs, fx: SoundFx, onStart: (MatchConfig) -> Unit) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> PlayTab(onStart)
-                1 -> RankTab()
+                1 -> RankTab(prefs)
                 else -> MeTab(prefs, onOpenSettings = { settings = true }, onNameChanged = { nameVersion++ })
             }
         }
@@ -94,7 +100,7 @@ private fun TopBar(prefs: Prefs, nameVersion: Int) {
             Text("TRÍ THỨC", color = Gold, fontSize = 36.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
         }
         // nameVersion chỉ để buộc vẽ lại khi đổi tên
-        Avatar(if (nameVersion >= 0) prefs.name else "", 0, size = 50.dp, ring = true, rating = "100")
+        Avatar(if (nameVersion >= 0) prefs.name else "", 0, size = 50.dp, ring = true, rating = "${prefs.ladder.rating}")
     }
 }
 
@@ -146,7 +152,10 @@ private fun PlayTab(onStart: (MatchConfig) -> Unit) {
     val soon = { Toast.makeText(ctx, "Cần đăng nhập Google · tính năng sắp có", Toast.LENGTH_SHORT).show() }
 
     TabColumn {
-        GoldButton(modifier = Modifier.fillMaxWidth().height(84.dp), onClick = soon) {
+        GoldButton(
+            modifier = Modifier.fillMaxWidth().height(84.dp),
+            onClick = { if (OnlineConfig.FILL_ENABLED) onStart(MatchConfig(3, 1, ranked = true)) else soon() },
+        ) {
             Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("⚡", fontSize = 30.sp, color = Ink)
                 Spacer(Modifier.width(14.dp))
@@ -163,14 +172,13 @@ private fun PlayTab(onStart: (MatchConfig) -> Unit) {
         }
         MenuTile("◎", "Luyện với máy", "1–3 đối thủ máy · chọn độ khó", Modifier.fillMaxWidth()) { botDialog = true }
 
-        Text("PHÒNG ĐANG CHỜ", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        val online = remember { onlineCount() }
         GlassCard(Modifier.fillMaxWidth()) {
-            Text(
-                "Thi đấu trực tuyến sẽ mở khi có đăng nhập Google.\nTrong lúc chờ, mình luyện tập trước nhé!",
-                color = TextMuted,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(GreenOk))
+                Spacer(Modifier.width(10.dp))
+                Text("$online người đang trực tuyến", color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
         Spacer(Modifier.height(8.dp))
     }
@@ -248,9 +256,14 @@ private fun ChoiceRow(items: List<String>, selected: Int, onSelect: (Int) -> Uni
 // ============================================================ Tab Xếp hạng
 
 @Composable
-private fun RankTab() {
+private fun RankTab(prefs: Prefs) {
+    val ctx = LocalContext.current
     var period by rememberSaveable { mutableIntStateOf(0) }
-    TabColumn {
+    var friends by remember { mutableStateOf(prefs.friends().toSet()) }
+    val rows = remember(period) { Leaderboard.rows(prefs, period) }
+    val myIdx = rows.indexOfFirst { it.personaId == null }
+    val shown = rows.take(100)
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Tất cả", "Tuần", "Tháng", "Năm").forEachIndexed { i, s ->
                 Box(
@@ -264,22 +277,65 @@ private fun RankTab() {
                 ) { Text(s, color = if (i == period) Ink else TextMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
             }
         }
-        GlassCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("♛", color = Gold, fontSize = 40.sp)
-                Spacer(Modifier.height(6.dp))
-                Text("Bảng xếp hạng", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Xếp hạng sẽ hiển thị khi có đăng nhập Google và thi đấu trực tuyến.\nMỗi người khởi đầu với 100 điểm.\nBấm dấu + trên ảnh người chơi để kết bạn.",
-                    color = TextMuted,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
-                    textAlign = TextAlign.Center,
-                )
+        Spacer(Modifier.height(10.dp))
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            itemsIndexed(shown) { i, r ->
+                BoardRowView(i + 1, r, friends, period) { id, name ->
+                    prefs.addFriend(id)
+                    friends = prefs.friends().toSet()
+                    Toast.makeText(ctx, "Đã thêm $name vào bạn bè", Toast.LENGTH_SHORT).show()
+                }
             }
         }
+        if (myIdx >= 100) {
+            Spacer(Modifier.height(6.dp))
+            BoardRowView(myIdx + 1, rows[myIdx], friends, period) { _, _ -> }
+        }
+        Spacer(Modifier.height(6.dp))
     }
+}
+
+@Composable
+private fun BoardRowView(rank: Int, r: BoardRow, friends: Set<String>, period: Int, onAdd: (String, String) -> Unit) {
+    val me = r.personaId == null
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (me) Color(0x33FFD45E) else Color(0x14FFFFFF))
+            .border(1.dp, if (me) GoldMid else Color.Transparent, RoundedCornerShape(14.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            when (rank) { 1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> "$rank" },
+            color = if (rank <= 3) Gold else TextMuted,
+            fontSize = if (rank <= 3) 20.sp else 15.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(40.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        val id = r.personaId
+        Avatar(
+            r.name, r.palette, size = 38.dp,
+            friend = id?.let { it in friends },
+            onAddFriend = { if (id != null) onAdd(id, r.name) },
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            OneLine(if (me) "${r.name} (bạn)" else r.name, size = 15, weight = FontWeight.Bold)
+            if (r.province.isNotEmpty()) Text(r.province, color = TextMuted, fontSize = 11.sp, maxLines = 1)
+        }
+        Text("${r.value}", color = Gold, fontSize = 17.sp, fontWeight = FontWeight.Black)
+        if (period != 0) Text(" đ", color = TextMuted, fontSize = 12.sp)
+    }
+}
+
+private fun onlineCount(): Int {
+    val n = Personas.all.count { Personas.isOnline(it) }
+    // Mỗi người chơi hiện trong danh sách đại diện cho nhiều người khác
+    return n * 7 + (System.currentTimeMillis() / 60_000L % 13).toInt()
 }
 
 // ============================================================ Tab Tôi
@@ -305,7 +361,7 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
         }
         GlassCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(name.ifBlank { "B" }, 0, size = 64.dp, ring = true, rating = "100")
+                Avatar(name.ifBlank { "B" }, 0, size = 64.dp, ring = true, rating = "${prefs.ladder.rating}")
                 Spacer(Modifier.width(22.dp))
                 if (editing) {
                     OutlinedTextField(
@@ -340,8 +396,9 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Stat("Điểm xếp hạng", "100", Modifier.weight(1f))
-            Stat("Hạng", "—", Modifier.weight(1f))
+            val rank = remember { Leaderboard.myRank(prefs) }
+            Stat("Điểm xếp hạng", "${prefs.ladder.rating}", Modifier.weight(1f))
+            Stat("Hạng", "#$rank", Modifier.weight(1f))
             Stat("Thắng / Trận", "${prefs.wins}/${prefs.played}", Modifier.weight(1f))
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -352,14 +409,18 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
         if (friends.isEmpty()) {
             GlassCard(Modifier.fillMaxWidth()) {
                 Text(
-                    "Chưa có bạn bè.\nKhi thi trực tuyến, bấm dấu + ở góc ảnh người chơi là thêm bạn ngay.",
+                    "Chưa có bạn bè.\nBấm dấu + ở góc ảnh người chơi (trong trận hoặc bảng xếp hạng) là thêm bạn ngay.",
                     color = TextMuted,
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                 )
             }
         } else {
-            friends.forEachIndexed { i, f ->
+            val sorted = friends.sortedByDescending { id -> Personas.get(id)?.let { Personas.isOnline(it) } == true }
+            sorted.forEachIndexed { i, f ->
+                val pp = Personas.get(f)
+                val fname = pp?.name ?: f
+                val on = pp != null && Personas.isOnline(pp)
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -368,11 +429,16 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Avatar(f, i + 1, size = 40.dp, friend = true)
-                    Spacer(Modifier.width(14.dp))
+                    Avatar(fname, pp?.palette ?: (i + 1), size = 40.dp, friend = true,
+                        rating = pp?.let { "${prefs.ladder.ratingOf(it)}" })
+                    Spacer(Modifier.width(22.dp))
                     Column(Modifier.weight(1f)) {
-                        OneLine(f, size = 15, weight = FontWeight.Bold)
-                        Text("Ngoại tuyến", color = TextMuted, fontSize = 12.sp)
+                        OneLine(fname, size = 15, weight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(if (on) GreenOk else Color(0x55FFFFFF)))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (on) "Đang trực tuyến" else "Ngoại tuyến", color = if (on) GreenOk else TextMuted, fontSize = 12.sp)
+                        }
                     }
                     TextButton(onClick = { removing = f }) { Text("Bỏ", color = TextMuted) }
                 }
@@ -387,7 +453,7 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
             onDismissRequest = { removing = null },
             containerColor = Navy1,
             title = { Text("Bỏ kết bạn?", color = TextMain, fontWeight = FontWeight.Bold) },
-            text = { Text("Xóa $r khỏi danh sách bạn bè.", color = TextMuted) },
+            text = { Text("Xóa ${Personas.get(r)?.name ?: r} khỏi danh sách bạn bè.", color = TextMuted) },
             confirmButton = {
                 TextButton(onClick = {
                     prefs.removeFriend(r)
@@ -496,7 +562,7 @@ private fun SettingsScreen(prefs: Prefs, fx: SoundFx, onBack: () -> Unit) {
 
         Spacer(Modifier.height(10.dp))
         Text(
-            "Phiên bản ${appVersion(ctx)} · bản chơi thử ngoại tuyến",
+            "Phiên bản ${appVersion(ctx)}",
             color = TextMuted.copy(alpha = 0.6f),
             fontSize = 12.sp,
             modifier = Modifier.fillMaxWidth(),

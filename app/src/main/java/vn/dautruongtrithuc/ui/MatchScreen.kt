@@ -78,12 +78,25 @@ fun MatchScreen(
 
     var askExit by remember { mutableStateOf(false) }
     BackHandler(enabled = vm.phase != Phase.END) { askExit = true }
+    val ctx = LocalContext.current
+    var friends by remember { mutableStateOf(prefs.friends().toSet()) }
+    val addFriend: (vn.dautruongtrithuc.game.PlayerState) -> Unit = { p ->
+        val id = p.personaId
+        if (id != null && id !in friends) {
+            prefs.addFriend(id)
+            friends = prefs.friends().toSet()
+            android.widget.Toast.makeText(ctx, "Đã thêm ${p.name} vào bạn bè", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     if (vm.phase == Phase.END) {
         ResultScreen(
             players = vm.players.toList(),
             winners = vm.winners,
             solo = vm.solo,
+            ranked = vm.ranked,
+            friends = friends,
+            onAddFriend = addFriend,
             onReplay = onReplay,
             onHome = onHome,
         )
@@ -109,6 +122,8 @@ fun MatchScreen(
                 timeText = if (vm.part == 1 && secs >= 60) "%d:%02d".format(secs / 60, secs % 60) else "$secs",
                 showTimer = vm.phase == Phase.PLAY && vm.timeTotalMs > 1L,
                 modifier = Modifier.fillMaxWidth().height(250.dp),
+                friends = friends,
+                onAddFriend = addFriend,
             )
             Box(Modifier.fillMaxWidth().heightIn(min = 34.dp).padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                 if (vm.banner.isNotEmpty()) {
@@ -163,6 +178,9 @@ fun MatchScreen(
         ) {
             IntroOverlay(part = vm.part, left = vm.introLeft, solo = vm.solo)
         }
+        if (vm.phase == Phase.SEARCH) {
+            SearchOverlay(found = vm.players.size - 1, secs = vm.searchSec)
+        }
     }
 
     if (askExit) {
@@ -170,7 +188,14 @@ fun MatchScreen(
             onDismissRequest = { askExit = false },
             containerColor = Navy1,
             title = { Text("Rời trận?", color = TextMain, fontWeight = FontWeight.Bold) },
-            text = { Text("Kết quả trận này sẽ không được lưu.", color = TextMuted) },
+            text = {
+                Text(
+                    if (vm.ranked && vm.phase != Phase.SEARCH) "Rời trận xếp hạng giữa chừng sẽ không được tính điểm."
+                    else if (vm.phase == Phase.SEARCH) "Dừng tìm đối thủ?"
+                    else "Kết quả trận này sẽ không được lưu.",
+                    color = TextMuted,
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     askExit = false
@@ -440,5 +465,49 @@ private fun rulesFor(part: Int, solo: Boolean): String = when (part) {
         "5 câu, mỗi câu 10 giây.\nĐúng +10 · sai −1."
     } else {
         "Mỗi người lần lượt 1 câu, 5 vòng, 10 giây/câu.\nĐúng +10 · sai −1.\nNgười khác có thể chọn trước để giành quyền khi người chính trả lời sai."
+    }
+}
+
+
+@Composable
+private fun SearchOverlay(found: Int, secs: Int) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xF2040A1E))
+            .clickable(enabled = false) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("⚡", color = Gold, fontSize = 44.sp)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                if (found >= 3) "ĐÃ ĐỦ NGƯỜI!" else "ĐANG TÌM ĐỐI THỦ…",
+                color = Gold,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Thi đấu xếp hạng · 4 người", color = TextMuted, fontSize = 14.sp)
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                for (i in 0 until 4) {
+                    val on = i == 0 || i <= found
+                    Box(
+                        Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(if (on) Gold else Color(0x22FFFFFF))
+                            .border(2.dp, if (on) GoldMid else Color(0x33FFFFFF), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(if (on) "✓" else "?", color = if (on) Ink else TextMuted, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            Text("${found + 1}/4 người · ${secs}s", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }

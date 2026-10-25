@@ -57,6 +57,10 @@ val AvatarPalettes = listOf(
     Triple(Color(0xFFC9F7E6), Color(0xFF2DD4BF), Color(0xFF04302D)),
     Triple(Color(0xFFE4DCFF), Color(0xFFA78BFA), Color(0xFF24104F)),
     Triple(Color(0xFFFFD6E8), Color(0xFFF472B6), Color(0xFF4A0A2A)),
+    Triple(Color(0xFFD3ECFF), Color(0xFF60A5FA), Color(0xFF0B2A55)),
+    Triple(Color(0xFFFFE0CC), Color(0xFFFB923C), Color(0xFF4A1E00)),
+    Triple(Color(0xFFDCFCE7), Color(0xFF4ADE80), Color(0xFF07361A)),
+    Triple(Color(0xFFFDE2E2), Color(0xFFF87171), Color(0xFF4C0A0A)),
 )
 
 @Composable

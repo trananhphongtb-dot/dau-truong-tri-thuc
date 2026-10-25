@@ -34,6 +34,9 @@ fun ResultScreen(
     players: List<PlayerState>,
     winners: Set<Int>,
     solo: Boolean,
+    ranked: Boolean = false,
+    friends: Set<String> = emptySet(),
+    onAddFriend: (PlayerState) -> Unit = {},
     onReplay: () -> Unit,
     onHome: () -> Unit,
 ) {
@@ -94,7 +97,12 @@ fun ResultScreen(
                 Text("$rank", color = if (win) Gold else TextMuted, fontSize = 20.sp, fontWeight = FontWeight.Black,
                     modifier = Modifier.width(28.dp))
                 Box {
-                    Avatar(p.name, p.palette, size = 44.dp, ring = win, rating = if (p.isBot) "BOT" else "100")
+                    Avatar(
+                        p.name, p.palette, size = 44.dp, ring = win,
+                        rating = if (p.personaId != null || p.id == 0) "${p.rating}" else "BOT",
+                        friend = p.personaId?.let { it in friends },
+                        onAddFriend = { onAddFriend(p) },
+                    )
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -105,7 +113,24 @@ fun ResultScreen(
                             Text("♛", color = Gold, fontSize = 16.sp)
                         }
                     }
-                    Text(if (p.isBot) "Máy" else "Người chơi", color = TextMuted, fontSize = 12.sp)
+                    Text(
+                        when {
+                            p.personaId != null -> p.province.ifBlank { "Người chơi" }
+                            p.isBot -> "Máy"
+                            else -> "Người chơi"
+                        },
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                    )
+                }
+                p.ratingDelta?.let { d ->
+                    Text(
+                        if (d >= 0) "+$d" else "$d",
+                        color = if (d >= 0) GreenOk else RedBad,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(end = 10.dp),
+                    )
                 }
                 Text("${p.score}", color = if (win) Gold else TextMain, fontSize = 24.sp, fontWeight = FontWeight.Black)
             }
@@ -114,7 +139,10 @@ fun ResultScreen(
 
         Spacer(Modifier.height(14.dp))
         Text(
-            "Trận luyện tập không tính điểm xếp hạng.",
+            if (ranked && me != null) {
+                val d = me.ratingDelta ?: 0
+                "Điểm xếp hạng: ${me.rating} → ${me.rating + d} (${if (d >= 0) "+$d" else "$d"})"
+            } else "Trận luyện tập không tính điểm xếp hạng.",
             color = TextMuted,
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
@@ -125,7 +153,7 @@ fun ResultScreen(
                 Text("Về sảnh", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             GoldButton(modifier = Modifier.weight(1f).height(52.dp), onClick = onReplay) {
-                Text("Chơi lại", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(if (ranked) "Trận mới" else "Chơi lại", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
             }
         }
         Spacer(Modifier.height(16.dp))

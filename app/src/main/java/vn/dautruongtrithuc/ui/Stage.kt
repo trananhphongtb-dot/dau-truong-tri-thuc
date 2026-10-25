@@ -45,6 +45,8 @@ fun Stage(
     timeText: String,
     showTimer: Boolean,
     modifier: Modifier = Modifier,
+    friends: Set<String> = emptySet(),
+    onAddFriend: (PlayerState) -> Unit = {},
 ) {
     BoxWithConstraints(modifier.clip(RoundedCornerShape(18.dp))) {
         Canvas(Modifier.matchParentSize()) { drawStage() }
@@ -73,6 +75,8 @@ fun Stage(
                 player = p,
                 isTurn = p.id == turnId,
                 isLocked = p.id in locked,
+                isFriend = p.personaId?.let { it in friends },
+                onAddFriend = { onAddFriend(p) },
                 modifier = Modifier
                     .width(podW)
                     .offset(x = w * x - podW / 2, y = baseY - podH),
@@ -82,10 +86,25 @@ fun Stage(
 }
 
 @Composable
-private fun Podium(player: PlayerState, isTurn: Boolean, isLocked: Boolean, modifier: Modifier) {
+private fun Podium(
+    player: PlayerState,
+    isTurn: Boolean,
+    isLocked: Boolean,
+    isFriend: Boolean?,
+    onAddFriend: () -> Unit,
+    modifier: Modifier,
+) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box {
-            Avatar(player.name, player.palette, size = 40.dp, ring = isTurn, rating = if (player.isBot) "BOT" else "100")
+            Avatar(
+                player.name, player.palette, size = 40.dp, ring = isTurn,
+                rating = when {
+                    player.personaId != null || player.id == 0 -> "${player.rating}"
+                    else -> "BOT"
+                },
+                friend = isFriend,
+                onAddFriend = onAddFriend,
+            )
             if (isLocked) {
                 Box(
                     Modifier

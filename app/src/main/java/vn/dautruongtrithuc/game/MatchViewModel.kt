@@ -16,13 +16,15 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import vn.dautruongtrithuc.audio.SoundFx
+import vn.dautruongtrithuc.data.Persona
+import vn.dautruongtrithuc.data.Personas
 import vn.dautruongtrithuc.data.Prefs
 import vn.dautruongtrithuc.data.Question
 import vn.dautruongtrithuc.data.QuestionBank
 import kotlin.random.Random
 
-/** bots = 0 là luyện tập một mình; level 0 dễ, 1 vừa, 2 khó. */
-data class MatchConfig(val bots: Int, val level: Int)
+/** bots = 0 là luyện tập một mình; level 0 dễ, 1 vừa, 2 khó; ranked = thi trực tuyến xếp hạng. */
+data class MatchConfig(val bots: Int, val level: Int, val ranked: Boolean = false)
 
 data class PlayerState(
     val id: Int,
@@ -30,9 +32,13 @@ data class PlayerState(
     val isBot: Boolean,
     val palette: Int,
     val score: Int = 0,
+    val personaId: String? = null,
+    val rating: Int = 0,
+    val ratingDelta: Int? = null,
+    val province: String = "",
 )
 
-enum class Phase { INTRO, PLAY, REVEAL, END }
+enum class Phase { SEARCH, INTRO, PLAY, REVEAL, END }
 
 val PART_NAMES = listOf("", "Khởi động", "Đấu Trí", "Về Đích")
 
@@ -72,6 +78,10 @@ class MatchViewModel : ViewModel() {
 
     var solo = true
         private set
+    var ranked = false
+        private set
+    var searchSec by mutableIntStateOf(0)
+        private set
 
     private var started = false
     private var job: Job? = null
@@ -79,6 +89,7 @@ class MatchViewModel : ViewModel() {
     private lateinit var prefs: Prefs
     private lateinit var fx: SoundFx
     private val rnd = Random(System.nanoTime())
+    private val personas = HashMap<Int, Persona>()
     private val usedIds = HashSet<String>()
     private var pSeen: Set<String> = emptySet()
     private var pWrong: Set<String> = emptySet()
@@ -100,16 +111,20 @@ class MatchViewModel : ViewModel() {
         cfg = config
         prefs = p
         fx = f
-        solo = config.bots == 0
+        ranked = config.ranked
+        solo = config.bots == 0 && !ranked
         pSeen = p.practiceSeen()
         pWrong = p.wrong()
         players.clear()
-        players.add(PlayerState(0, p.name.ifBlank { "Bạn" }, isBot = false, palette = 0))
-        val names = listOf("An", "Bình", "Chi", "Dũng", "Hà", "Khoa", "Linh", "Nam").shuffled(rnd)
-        repeat(config.bots.coerceIn(0, 3)) { i ->
-            players.add(PlayerState(i + 1, names[i], isBot = true, palette = i + 1))
+        players.add(PlayerState(0, p.name.ifBlank { "Bạn" }, isBot = false, palette = 0, rating = p.ladder.rating))
+        if (!ranked) {
+            val names = listOf("An", "Bình", "Chi", "Dũng", "Hà", "Khoa", "Linh", "Nam").shuffled(rnd)
+            repeat(config.bots.coerceIn(0, 3)) { i ->
+                players.add(PlayerState(i + 1, names[i], isBot = true, palette = i + 1))
+            }
         }
         job = viewModelScope.launch {
+            if (ranked) search()
             intro(1)
             part1()
             intro(2)
@@ -169,6 +184,40 @@ class MatchViewModel : ViewModel() {
     }
 
     // ------------------------------------------------------------------ Các phần thi
+
+    /** Tìm đối thủ: người chơi lần lượt vào phòng. */
+    private suspend fun search() {
+        phase = Phase.SEARCH
+        val my = prefs.ladder.rating
+        val pool = Personas.all
+            .map { it to prefs.ladder.ratingOf(it) }
+            .sortedBy { (pp, r) -> kotlin.math.abs(r - my) + rnd.nextInt(0, 120) }
+            .take(24)
+            .shuffled(rnd)
+            .take(3)
+        val totalMs = rnd.nextLong(3_000L, 12_000L)
+        val joins = List(3) { rnd.nextLong(600L, totalMs) }.sorted()
+        val t0 = SystemClock.elapsedRealtime()
+        var next = 0
+        while (next < 3) {
+            val el = SystemClock.elapsedRealtime() - t0
+            searchSec = (el / 1000).toInt()
+            if (el >= joins[next]) {
+                val (pp, r) = pool[next]
+                personas[next + 1] = pp
+                players.add(
+                    PlayerState(
+                        next + 1, pp.name, isBot = true, palette = pp.palette,
+                        personaId = pp.id, rating = r, province = pp.province,
+                    )
+                )
+                fx.play("lock")
+                next++
+            }
+            delay(100)
+        }
+        delay(1_200)
+    }
 
     private suspend fun intro(n: Int) {
         part = n
@@ -236,9 +285,10 @@ class MatchViewModel : ViewModel() {
         players.filter { it.isBot }.forEach { bot ->
             launch {
                 while (timeLeftMs > 0L) {
-                    delay(botThinkPart1())
+                    delay(botThinkPart1(bot.id))
                     if (timeLeftMs <= 0L) break
-                    if (rnd.nextFloat() < accuracy(2)) addScore(bot.id, 10)
+                    val f = qs.getOrNull(rnd.nextInt(qs.size.coerceAtLeast(1)))?.field ?: ""
+                    if (rnd.nextFloat() < accuracy(1, bot.id, f)) addScore(bot.id, 10)
                 }
             }
         }
@@ -295,10 +345,14 @@ class MatchViewModel : ViewModel() {
             coroutineScope {
                 val start = SystemClock.elapsedRealtime()
                 questionStart = start
-                val clock = timer(15_000L) { humanChoice != null && botAnswers.size >= cfg.bots }
+                val botCount = players.count { it.isBot }
+                val clock = timer(15_000L) { humanChoice != null && botAnswers.size >= botCount }
                 players.filter { it.isBot }.forEach { bot ->
-                    val at = botAnswerTime(2)
-                    val ok = rnd.nextFloat() < accuracy(q.level)
+                    if (ranked && rnd.nextFloat() < 0.05f) return@forEach   // thỉnh thoảng không kịp trả lời
+                    var at = botAnswerTime(2, bot.id)
+                    var acc = accuracy(q.level, bot.id, q.field)
+                    if (ranked && rnd.nextFloat() < 0.07f) { at = rnd.nextLong(900L, 1_900L); acc *= 0.6f }  // bấm vội
+                    val ok = rnd.nextFloat() < acc
                     val ch = if (ok) q.answer else wrongChoice(q)
                     launch {
                         delay(at)
@@ -378,9 +432,9 @@ class MatchViewModel : ViewModel() {
                     val start = SystemClock.elapsedRealtime()
                     questionStart = start
                     val clock = timer(10_000L) { mainDone }
-                    if (isBotTurn) {
-                        val at = botAnswerTime(3)
-                        val ok = rnd.nextFloat() < accuracy(q.level)
+                    if (isBotTurn && !(ranked && rnd.nextFloat() < 0.04f)) {
+                        val at = botAnswerTime(3, pid)
+                        val ok = rnd.nextFloat() < accuracy(q.level, pid, q.field)
                         val ch = if (ok) q.answer else wrongChoice(q)
                         launch {
                             delay(at)
@@ -391,9 +445,9 @@ class MatchViewModel : ViewModel() {
                         }
                     }
                     players.filter { it.isBot && it.id != pid }.forEach { bot ->
-                        if (rnd.nextFloat() < stealChance()) {
+                        if (rnd.nextFloat() < stealChance(bot.id)) {
                             val at = 1_500L + rnd.nextLong(6_500L)
-                            val ok = rnd.nextFloat() < accuracy(q.level)
+                            val ok = rnd.nextFloat() < accuracy(q.level, bot.id, q.field)
                             val ch = if (ok) q.answer else wrongChoice(q)
                             launch {
                                 delay(at)
@@ -453,6 +507,11 @@ class MatchViewModel : ViewModel() {
         val max = players.maxOf { it.score }
         winners = players.filter { it.score == max }.map { it.id }.toSet()
         prefs.played = prefs.played + 1
+        if (ranked) {
+            val entries = players.map { Triple(it.personaId, it.rating, it.score) }
+            val d = prefs.ladder.applyMatch(entries)
+            for (i in players.indices) players[i] = players[i].copy(ratingDelta = d[i])
+        }
         val me = players.first { it.id == 0 }
         if (solo) {
             if (me.score > prefs.bestSolo) prefs.bestSolo = me.score
@@ -499,7 +558,14 @@ class MatchViewModel : ViewModel() {
 
     fun nameOf(id: Int): String = if (id == 0) "Bạn" else players.firstOrNull { it.id == id }?.name ?: "?"
 
-    private fun accuracy(level: Int): Float {
+    private fun accuracy(level: Int, botId: Int, field: String): Float {
+        val p = personas[botId]
+        if (p != null) {
+            var a = 0.34f + p.skill * 0.56f - 0.07f * (level - 2)
+            if (field in p.strong) a += 0.12f
+            if (field in p.weak) a -= 0.12f
+            return a.coerceIn(0.12f, 0.96f)
+        }
         val base = when (cfg.level) {
             0 -> 0.50f
             1 -> 0.68f
@@ -508,13 +574,19 @@ class MatchViewModel : ViewModel() {
         return (base - 0.08f * (level - 2)).coerceIn(0.2f, 0.95f)
     }
 
-    private fun botThinkPart1(): Long = when (cfg.level) {
+    private fun botThinkPart1(botId: Int): Long = personas[botId]?.let {
+        val lo = (2_000 + (1f - it.skill) * 4_500).toLong()
+        rnd.nextLong(lo, lo + 3_500L)
+    } ?: when (cfg.level) {
         0 -> rnd.nextLong(4_500L, 9_000L)
         1 -> rnd.nextLong(3_200L, 6_500L)
         else -> rnd.nextLong(2_200L, 4_500L)
     }
 
-    private fun botAnswerTime(p: Int): Long = if (p == 2) {
+    private fun botAnswerTime(p: Int, botId: Int): Long = personas[botId]?.let {
+        val lo = (1_600 + (1f - it.skill) * (if (p == 2) 6_000 else 4_500)).toLong()
+        rnd.nextLong(lo, lo + if (p == 2) 5_500L else 3_500L).coerceAtMost(if (p == 2) 14_500L else 9_700L)
+    } ?: if (p == 2) {
         when (cfg.level) {
             0 -> rnd.nextLong(5_000L, 13_000L)
             1 -> rnd.nextLong(3_000L, 10_000L)
@@ -528,7 +600,7 @@ class MatchViewModel : ViewModel() {
         }
     }
 
-    private fun stealChance(): Float = when (cfg.level) {
+    private fun stealChance(botId: Int): Float = personas[botId]?.let { 0.12f + it.risk * 0.38f } ?: when (cfg.level) {
         0 -> 0.20f
         1 -> 0.30f
         else -> 0.40f

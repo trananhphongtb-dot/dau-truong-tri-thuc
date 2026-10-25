@@ -15,6 +15,9 @@ data class Question(
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("dttt", Context.MODE_PRIVATE)
 
+    /** Điểm xếp hạng và người chơi trực tuyến. */
+    val ladder = Ladder(context)
+
     var name: String
         get() = sp.getString("name", "Bạn") ?: "Bạn"
         set(value) { sp.edit().putString("name", value).apply() }
@@ -60,8 +63,10 @@ class Prefs(context: Context) {
         sp.edit().putStringSet("pseen", seen).putStringSet("wrong", wr).apply()
     }
 
-    /** Danh sách bạn bè (tên hiển thị); kết bạn một chiều, không cần bên kia đồng ý. */
+    /** Danh sách bạn bè (mã người chơi); kết bạn một chiều, không cần bên kia đồng ý. */
     fun friends(): List<String> = (sp.getStringSet("friends", emptySet()) ?: emptySet()).sorted()
+
+    fun isFriend(id: String): Boolean = sp.getStringSet("friends", emptySet())?.contains(id) == true
 
     fun addFriend(name: String) {
         val f = HashSet(sp.getStringSet("friends", emptySet()) ?: emptySet())
