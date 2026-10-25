@@ -132,6 +132,7 @@ fun MatchScreen(
             Stage(
                 players = vm.players.toList(),
                 turnId = vm.turnId,
+                starId = vm.starId,
                 locked = vm.locked,
                 timeFraction = vm.timeLeftMs.toFloat() / vm.timeTotalMs.coerceAtLeast(1L),
                 timeText = if (vm.part == 1 && secs >= 60) "%d:%02d".format(secs / 60, secs % 60) else "$secs",
@@ -192,6 +193,9 @@ fun MatchScreen(
             exit = fadeOut(),
         ) {
             IntroOverlay(part = vm.part, left = vm.introLeft, solo = vm.solo)
+        }
+        if (vm.starAsk) {
+            StarOverlay(left = vm.starLeft, onYes = { vm.setStar(true) }, onNo = { vm.setStar(false) })
         }
         if (vm.phase == Phase.SEARCH) {
             SearchOverlay(found = vm.players.size - 1, secs = vm.searchSec, onCancel = { vm.stop(); onHome() })
@@ -477,9 +481,9 @@ private fun rulesFor(part: Int, solo: Boolean): String = when (part) {
         "10 câu, mỗi câu 15 giây.\nĐúng nhanh nhất +30 · nhì +20 · ba +10.\nSai không bị trừ."
     }
     else -> if (solo) {
-        "5 câu, mỗi câu 10 giây.\nĐúng +10 · sai −1."
+        "5 câu, mỗi câu 10 giây.\nĐúng +10 · sai −10.\nNgôi sao hy vọng (1 lần, đặt trước khi hiện câu): đúng +20 · sai −20."
     } else {
-        "Mỗi người lần lượt 1 câu, 5 vòng, 10 giây/câu.\nĐúng +10 · sai −1.\nNgười khác có thể chọn trước để giành quyền khi người chính trả lời sai."
+        "Mỗi người lần lượt 1 câu, 5 vòng, 10 giây/câu.\nĐúng +10 · sai −10.\nNgôi sao hy vọng (1 lần, đặt trước khi hiện câu): đúng +20 · sai −20.\nNgười khác được giành quyền khi người chính sai: đúng +10 · sai −10."
     }
 }
 
@@ -694,5 +698,42 @@ private fun Lobby(
             },
             dismissButton = { TextButton(onClick = { askLeave = false }) { Text("Ở lại", color = Gold, fontWeight = FontWeight.Bold) } },
         )
+    }
+}
+
+
+@Composable
+private fun StarOverlay(left: Int, onYes: () -> Unit, onNo: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xD9040A1E))
+            .clickable(enabled = false) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("⭐", fontSize = 64.sp)
+            Spacer(Modifier.height(10.dp))
+            Text("NGÔI SAO HY VỌNG", color = Gold, fontSize = 26.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Đặt sao cho câu sắp tới?\nĐúng +20 · sai hoặc hết giờ −20\nMỗi trận chỉ dùng 1 lần.",
+                color = TextMain,
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                BlueButton(modifier = Modifier.width(130.dp).height(54.dp), onClick = onNo) {
+                    Text("Không", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                GoldButton(modifier = Modifier.width(130.dp).height(54.dp), onClick = onYes) {
+                    Text("Đặt sao ⭐", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Tự bỏ qua sau ${left}s", color = TextMuted, fontSize = 13.sp)
+        }
     }
 }

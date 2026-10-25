@@ -48,6 +48,7 @@ import kotlin.math.abs
 fun Stage(
     players: List<PlayerState>,
     turnId: Int?,
+    starId: Int? = null,
     locked: Set<Int>,
     timeFraction: Float,
     timeText: String,
@@ -87,6 +88,7 @@ fun Stage(
                 isLocked = p.id in locked,
                 isFriend = p.personaId?.let { it in friends },
                 isLeader = p.id in leaders,
+                hasStar = p.id == starId,
                 onAddFriend = { onAddFriend(p) },
                 modifier = Modifier
                     .width(podW)
@@ -103,6 +105,7 @@ private fun Podium(
     isLocked: Boolean,
     isFriend: Boolean?,
     isLeader: Boolean,
+    hasStar: Boolean,
     onAddFriend: () -> Unit,
     modifier: Modifier,
 ) {
@@ -156,7 +159,7 @@ private fun Podium(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    player.name,
+                    (if (hasStar) "⭐ " else "") + player.name,
                     color = textColor,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
