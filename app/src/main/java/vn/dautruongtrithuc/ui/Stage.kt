@@ -87,7 +87,7 @@ fun Stage(
                 player = p,
                 isTurn = p.id == turnId,
                 isLocked = p.id in locked,
-                isFriend = p.personaId?.let { it in friends },
+                isFriend = if (p.id == 0) null else p.friendKey?.let { it in friends },
                 isLeader = p.id in leaders,
                 hasStar = p.id == starId,
                 onAddFriend = { onAddFriend(p) },
@@ -116,7 +116,7 @@ private fun Podium(
             Avatar(
                 player.name, player.palette, size = 40.dp, ring = isTurn,
                 rating = when {
-                    player.personaId != null || player.id == 0 -> "${player.rating}"
+                    player.personaId != null || player.uid != null || player.id == 0 -> "${player.rating}"
                     else -> "BOT"
                 },
                 friend = isFriend,

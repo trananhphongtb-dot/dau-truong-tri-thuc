@@ -16,6 +16,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import vn.dautruongtrithuc.audio.SoundFx
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.distinctUntilChanged
+import vn.dautruongtrithuc.data.Net
 import vn.dautruongtrithuc.data.Persona
 import vn.dautruongtrithuc.data.Personas
 import vn.dautruongtrithuc.data.Prefs
@@ -24,7 +28,13 @@ import vn.dautruongtrithuc.data.QuestionBank
 import kotlin.random.Random
 
 /** bots = 0 là luyện tập một mình; level 0 dễ, 1 vừa, 2 khó; ranked = thi trực tuyến xếp hạng. */
-data class MatchConfig(val bots: Int, val level: Int, val ranked: Boolean = false, val room: Boolean = false)
+data class MatchConfig(
+    val bots: Int,
+    val level: Int,
+    val ranked: Boolean = false,
+    val room: Boolean = false,
+    val joinRoom: String? = null,     // vào phòng của người khác (qua link / lời mời)
+)
 
 data class PlayerState(
     val id: Int,
@@ -37,7 +47,11 @@ data class PlayerState(
     val ratingDelta: Int? = null,
     val province: String = "",
     val avatar: Int = -1,
-)
+    val uid: String? = null,          // người chơi thật trên máy chủ
+) {
+    /** Khóa dùng cho kết bạn: mã người chơi ảo hoặc uid người thật. */
+    val friendKey: String? get() = personaId ?: uid
+}
 
 enum class Phase { LOBBY, SEARCH, INTRO, PLAY, REVEAL, END }
 
@@ -89,6 +103,24 @@ class MatchViewModel : ViewModel() {
         private set
     private val startSignal = kotlinx.coroutines.CompletableDeferred<Unit>()
 
+    // ---- Trực tuyến (Firebase)
+    /** Mã phòng trên máy chủ (null = chơi trên máy). */
+    var netRoom by mutableStateOf<String?>(null)
+        private set
+    /** true = máy này là chủ phòng (điều khiển trận). */
+    var isHost by mutableStateOf(true)
+        private set
+    private var guest = false
+    var searchFailed by mutableStateOf(false)
+        private set
+    var netError by mutableStateOf<String?>(null)
+        private set
+    private val unsubs = ArrayList<() -> Unit>()
+    private val remoteIn = HashMap<String, RemoteIn>()
+    private var deadlineServer = 0L
+    private data class RemoteIn(val k: String?, val c: Int, val t: Long, val star: String?, val p1: Int)
+    private fun remotes() = players.filter { it.uid != null && it.id != 0 }
+
     /** Trận trực tuyến (xếp hạng hoặc phòng): người chơi trực tuyến cố gắng không thắng người thật. */
     private val online get() = ranked || room
 
@@ -114,8 +146,11 @@ class MatchViewModel : ViewModel() {
         if (!canStarNext) return
         myNextStar = !myNextStar
         fx.play(if (myNextStar) "chime" else "tick")
+        if (guest) netRoom?.let { Rooms.answer(it, mapOf("star" to if (myNextStar) "3-$qNo" else "")) }
     }
     private var rated = false
+
+    private fun rateKey(p: PlayerState): String = p.personaId ?: if (p.id == 0) "#me" else "#other"
 
     /** Có người thật khác trong trận thì cộng đủ; toàn người chơi trực tuyến ảo thì cộng ít hơn. */
     private fun gainFactor(): Float = if (players.any { it.id != 0 && it.personaId == null && !it.isBot }) 1f else 0.5f
@@ -153,10 +188,21 @@ class MatchViewModel : ViewModel() {
                 players.add(PlayerState(i + 1, names[i], isBot = true, palette = i + 1))
             }
         }
+        if (config.joinRoom != null) {
+            guest = true
+            room = true
+            solo = false
+            isHost = false
+            job = viewModelScope.launch { runGuest(config.joinRoom, alreadyMember = false) }
+            return
+        }
         job = viewModelScope.launch {
             if (ranked) search()
+            if (guest) return@launch       // đã được ghép vào phòng người khác
             if (room) lobby()
             matchStarted = true
+            Net.setInMatch(true)
+            if (netRoom != null) hostNet()
             intro(1)
             part1()
             intro(2)
@@ -172,7 +218,7 @@ class MatchViewModel : ViewModel() {
         // Bỏ trận trực tuyến giữa chừng: tính thua, xếp cuối
         if (online && matchStarted && !rated && ::prefs.isInitialized) {
             val low = (players.minOfOrNull { it.score } ?: 0) - 1
-            val entries = players.map { Triple(it.personaId, it.rating, if (it.id == 0) low else it.score) }
+            val entries = players.map { Triple(rateKey(it), it.rating, if (it.id == 0) low else it.score) }
             prefs.ladder.applyMatch(entries, reduced = gainFactor() < 1f)
             prefs.played = prefs.played + 1
             rated = true
@@ -180,12 +226,31 @@ class MatchViewModel : ViewModel() {
         job?.cancel()
         flush()
         if (::fx.isInitialized) fx.stopVoice()
+        unsubs.forEach { it() }
+        unsubs.clear()
+        if (ranked) Rooms.dequeue()
+        netRoom?.let { rid ->
+            if (isHost && remotes().isEmpty()) Rooms.cleanup(rid)
+            else if (isHost && phase == Phase.END) Rooms.cleanup(rid)
+            else Rooms.leave(rid)
+        }
+        Net.setInMatch(false)
+        Net.pushProfile()
     }
 
     // ------------------------------------------------------------------ Người chơi bấm
 
     fun choose(i: Int) {
         if (phase != Phase.PLAY || reveal || timeLeftMs <= 0L) return
+        if (guest && part >= 2) {
+            if (humanChoice != null) return
+            humanChoice = i
+            locked = locked + 0
+            fx.play("lock")
+            val t = (Net.serverNow() - (deadlineServer - timeTotalMs)).coerceAtLeast(0L)
+            netRoom?.let { Rooms.answer(it, mapOf("k" to "$part-$qNo", "c" to i, "t" to t)) }
+            return
+        }
         val now = SystemClock.elapsedRealtime() - questionStart
         when (part) {
             1 -> if (humanChoice == null) humanChoice = i
@@ -217,6 +282,7 @@ class MatchViewModel : ViewModel() {
 
     fun canAnswer(): Boolean {
         if (phase != Phase.PLAY || reveal || question == null || timeLeftMs <= 0L) return false
+        if (guest && part >= 2) return humanChoice == null
         return when (part) {
             3 -> !mainDone && humanChoice == null && (turnId == 0 || !solo)
             else -> humanChoice == null
@@ -227,20 +293,49 @@ class MatchViewModel : ViewModel() {
 
     /** Chủ phòng bấm Bắt đầu. */
     fun startRoom() {
-        if (phase == Phase.LOBBY && players.size >= 2) startSignal.complete(Unit)
+        if (phase == Phase.LOBBY && isHost && players.size >= 2) {
+            netRoom?.let { Rooms.setState(it, "playing") }
+            startSignal.complete(Unit)
+        }
     }
 
     /** Phòng chờ: 1–2 người chơi trực tuyến vào làm mồi; khi có người thật thì họ tự rời. */
     private suspend fun lobby() = coroutineScope {
         phase = Phase.LOBBY
         roomCode = (100_000 + rnd.nextInt(900_000)).toString()
+        if (Net.signedIn) {
+            val rid = Rooms.create("room", prefs.name.ifBlank { "Bạn" }, prefs.avatar, prefs.ladder.rating)
+            if (rid != null) {
+                netRoom = rid
+                roomCode = rid
+                val myUid = Net.uid
+                unsubs += Rooms.listen("rooms/$rid") { snap ->
+                    val ms = Rooms.members(snap).filter { it.uid != myUid }
+                    // Người thật mới vào
+                    for (m in ms) {
+                        if (players.none { it.uid == m.uid } && players.count { it.personaId == null } < 4) {
+                            val id = (1..3).firstOrNull { k -> players.none { it.id == k && it.personaId == null } } ?: continue
+                            players.removeAll { it.id == id }   // nhường chỗ nếu người ảo đang giữ số này
+                            personas.remove(id)
+                            onRealPlayerJoined(
+                                PlayerState(id, m.name, isBot = false, palette = id, rating = m.rating, avatar = m.avatar, uid = m.uid)
+                            )
+                            fx.play("lock")
+                        }
+                    }
+                    // Người thật rời phòng chờ
+                    players.removeAll { it.uid != null && it.id != 0 && ms.none { m -> m.uid == it.uid } }
+                }
+            }
+        }
         val want = if (rnd.nextFloat() < 0.5f) 1 else 2
         val picks = pickPersonas(want)
         val joiner = launch {
             for ((k, pr) in picks.withIndex()) {
                 delay(rnd.nextLong(2_000L, 9_000L))
-                if (realCount() >= 2) break
-                addPersona(k + 1, pr.first, pr.second)
+                if (realCount() >= 2 || !Net.fillEnabled) break
+                val free = (1..3).firstOrNull { id -> players.none { it.id == id } } ?: break
+                addPersona(free, pr.first, pr.second)
             }
         }
         startSignal.await()
@@ -251,7 +346,7 @@ class MatchViewModel : ViewModel() {
 
     /** Mời bạn (người chơi trực tuyến) đang rảnh vào phòng. */
     fun inviteFriend(id: String): Boolean {
-        if (phase != Phase.LOBBY || players.size >= 4 || players.any { it.personaId == id }) return false
+        if (!isHost || phase != Phase.LOBBY || players.size >= 4 || players.any { it.personaId == id }) return false
         val pp = Personas.get(id) ?: return false
         viewModelScope.launch {
             delay(rnd.nextLong(1_000L, 3_000L))
@@ -300,6 +395,11 @@ class MatchViewModel : ViewModel() {
     /** Tìm đối thủ: người chơi lần lượt vào phòng. */
     private suspend fun search() {
         phase = Phase.SEARCH
+        if (Net.signedIn && netSearch()) return
+        if (!Net.fillEnabled) {
+            searchFailed = true
+            awaitCancellation()
+        }
         val pool = pickPersonas(3)
         val totalMs = rnd.nextLong(3_000L, 12_000L)
         val joins = List(3) { rnd.nextLong(600L, totalMs) }.sorted()
@@ -345,6 +445,7 @@ class MatchViewModel : ViewModel() {
     private fun CoroutineScope.timer(totalMs: Long, isDone: () -> Boolean): Job {
         timeTotalMs = totalMs
         timeLeftMs = totalMs
+        deadlineServer = Net.serverNow() + totalMs
         val start = SystemClock.elapsedRealtime()
         return launch {
             var lastSec = ((totalMs + 999) / 1000).toInt()
@@ -381,6 +482,16 @@ class MatchViewModel : ViewModel() {
         qTotal = qs.size
         roundText = "2 phút"
         val clock = timer(120_000L) { false }
+        if (remotes().isNotEmpty()) launch {
+            while (timeLeftMs > 0L || remotes().any { (remoteIn[it.uid]?.p1 ?: 0) > it.score }) {
+                for (rp in remotes()) {
+                    val v = remoteIn[rp.uid]?.p1 ?: 0
+                    if (v > rp.score) addScore(rp.id, v - rp.score)
+                }
+                if (timeLeftMs <= 0L) break
+                delay(150)
+            }
+        }
         players.filter { it.isBot }.forEach { bot ->
             launch {
                 while (timeLeftMs > 0L) {
@@ -417,6 +528,11 @@ class MatchViewModel : ViewModel() {
             i++
         }
         clock.join()
+        delay(if (remotes().isNotEmpty()) 1_200L else 0L)   // chờ điểm phần 1 của người khác gửi lên
+        for (rp in remotes()) {
+            val v = remoteIn[rp.uid]?.p1 ?: 0
+            if (v > rp.score) addScore(rp.id, v - rp.score)
+        }
         coroutineContext.cancelChildren()
         reveal = false
         question = null
@@ -444,8 +560,22 @@ class MatchViewModel : ViewModel() {
             coroutineScope {
                 val start = SystemClock.elapsedRealtime()
                 questionStart = start
-                val botCount = players.count { it.isBot }
-                val clock = timer(15_000L) { humanChoice != null && botAnswers.size >= botCount }
+                val others = players.count { it.id != 0 }
+                val clock = timer(15_000L) { humanChoice != null && botAnswers.size >= others }
+                val key = "2-$qNo"
+                if (remotes().isNotEmpty()) launch {
+                    while (timeLeftMs > 0L) {
+                        for (rp in remotes()) {
+                            val inp = remoteIn[rp.uid] ?: continue
+                            if (inp.k == key && rp.id !in botAnswers) {
+                                botAnswers[rp.id] = inp.c to inp.t
+                                locked = locked + rp.id
+                                fx.play("lock")
+                            }
+                        }
+                        delay(60)
+                    }
+                }
                 players.filter { it.isBot }.forEach { bot ->
                     if (ranked && rnd.nextFloat() < 0.05f) return@forEach   // thỉnh thoảng không kịp trả lời
                     var at = botAnswerTime(2, bot.id)
@@ -520,7 +650,8 @@ class MatchViewModel : ViewModel() {
                 steals.clear()
                 mainChoice = null
                 mainDone = false
-                val isBotTurn = pid != 0
+                val isBotTurn = players.firstOrNull { it.id == pid }?.isBot == true
+                val turnUid = players.firstOrNull { it.id == pid }?.uid?.takeIf { pid != 0 }
                 // Ngôi sao hy vọng đã đặt từ lượt trước
                 starId = if (pendingStar.remove(pid)) pid else null
                 if (pid == 0) {
@@ -550,6 +681,26 @@ class MatchViewModel : ViewModel() {
                             }
                         }
                     }
+                    val key = "3-$qNo"
+                    if (remotes().isNotEmpty()) launch {
+                        val stolen = HashSet<Int>()
+                        while (timeLeftMs > 0L && !mainDone) {
+                            for (rp in remotes()) {
+                                val inp = remoteIn[rp.uid] ?: continue
+                                if (inp.k != key) continue
+                                if (rp.id == pid) {
+                                    mainChoice = inp.c
+                                    mainDone = true
+                                } else if (rp.id !in stolen) {
+                                    stolen.add(rp.id)
+                                    steals.add(Triple(rp.id, inp.c, inp.t))
+                                    locked = locked + rp.id
+                                    fx.play("lock")
+                                }
+                            }
+                            delay(60)
+                        }
+                    }
                     players.filter { it.isBot && it.id != pid }.forEach { bot ->
                         if (rnd.nextFloat() < stealChance(bot.id)) {
                             val at = 1_500L + rnd.nextLong(6_500L)
@@ -574,6 +725,8 @@ class MatchViewModel : ViewModel() {
                 if (pid == 0) {
                     if (myNextStar) pendingStar.add(0)
                     canStarNext = false
+                } else if (turnUid != null) {
+                    if (r < rounds && remoteIn[turnUid]?.star == "3-$qNo") pendingStar.add(pid)
                 } else if (r < rounds) {
                     val risk = personas[pid]?.risk ?: 0.5f
                     val chance = 0.10f + risk * 0.25f + (if (r >= rounds - 2) 0.15f else 0f)
@@ -627,7 +780,7 @@ class MatchViewModel : ViewModel() {
         winners = players.filter { it.score == max }.map { it.id }.toSet()
         prefs.played = prefs.played + 1
         if (online && !rated) {
-            val entries = players.map { Triple(it.personaId, it.rating, it.score) }
+            val entries = players.map { Triple(rateKey(it), it.rating, it.score) }
             val d = prefs.ladder.applyMatch(entries, reduced = gainFactor() < 1f)
             for (i in players.indices) players[i] = players[i].copy(ratingDelta = d[i])
             rated = true
@@ -646,6 +799,367 @@ class MatchViewModel : ViewModel() {
             fx.say("Chúc bạn may mắn lần sau!")
         }
         phase = Phase.END
+        Net.setInMatch(false)
+        Net.pushProfile()
+        netRoom?.let { if (isHost) Rooms.setState(it, "done") }
+    }
+
+    // ------------------------------------------------------------------ Trực tuyến: chủ phòng
+
+    /** Chủ phòng: nghe câu trả lời của người khác và phát trạng thái trận lên máy chủ. */
+    private fun hostNet() {
+        val rid = netRoom ?: return
+        unsubs += Rooms.listen("input/$rid") { snap ->
+            for (c in snap.children) {
+                val uid = c.key ?: continue
+                remoteIn[uid] = RemoteIn(
+                    c.child("k").getValue(String::class.java),
+                    c.child("c").getValue(Long::class.java)?.toInt() ?: -1,
+                    c.child("t").getValue(Long::class.java) ?: 0L,
+                    c.child("star").getValue(String::class.java),
+                    c.child("p1").getValue(Long::class.java)?.toInt() ?: 0,
+                )
+            }
+        }
+        viewModelScope.launch {
+            snapshotFlow { buildLive() }.distinctUntilChanged().collect { Rooms.publish(rid, it) }
+        }
+    }
+
+    private fun buildLive(): Map<String, Any?> {
+        val q = question
+        val m = HashMap<String, Any?>()
+        m["part"] = part
+        m["phase"] = phase.name
+        m["intro"] = introLeft
+        m["qNo"] = qNo
+        m["qTotal"] = qTotal
+        m["deadline"] = deadlineServer
+        m["total"] = timeTotalMs
+        m["reveal"] = reveal
+        m["banner"] = banner
+        m["round"] = roundText
+        m["turn"] = turnId ?: -1
+        m["star"] = starId ?: -1
+        m["locked"] = locked.joinToString(",")
+        m["winners"] = winners.joinToString(",")
+        if (q != null && part >= 2) {
+            m["q"] = mapOf(
+                "id" to q.id, "f" to q.field, "l" to q.level, "t" to q.text,
+                "o" to q.options, "a" to if (reveal) q.answer else -1,
+            )
+        }
+        m["players"] = players.map {
+            mapOf(
+                "id" to it.id, "uid" to (if (it.id == 0) Net.uid else it.uid), "name" to it.name,
+                "avatar" to it.avatar, "palette" to it.palette, "rating" to it.rating,
+                "score" to it.score, "delta" to (it.ratingDelta ?: -999), "persona" to it.personaId,
+            )
+        }
+        return m
+    }
+
+    // ------------------------------------------------------------------ Trực tuyến: ghép trận
+
+    /** Tìm người thật trong hàng chờ. true nếu đã ghép được (làm chủ hoặc vào phòng người khác). */
+    private suspend fun netSearch(): Boolean {
+        val myUid = Net.uid ?: return false
+        val myRating = prefs.ladder.rating
+        Rooms.enqueue(prefs.name.ifBlank { "Bạn" }, prefs.avatar, myRating)
+        data class Q(val uid: String, val name: String, val avatar: Int, val rating: Int, val at: Long, val room: String?)
+        var queue: List<Q> = emptyList()
+        val stopListen = Rooms.listen("queue") { snap ->
+            queue = snap.children.mapNotNull { c ->
+                Q(
+                    c.key ?: return@mapNotNull null,
+                    c.child("name").getValue(String::class.java) ?: "Người chơi",
+                    c.child("avatar").getValue(Long::class.java)?.toInt() ?: -1,
+                    c.child("rating").getValue(Long::class.java)?.toInt() ?: 100,
+                    c.child("at").getValue(Long::class.java) ?: 0L,
+                    c.child("room").getValue(String::class.java),
+                )
+            }
+        }
+        val limit = if (Net.fillEnabled) 12_000L else 90_000L
+        val t0 = SystemClock.elapsedRealtime()
+        try {
+            while (true) {
+                val el = SystemClock.elapsedRealtime() - t0
+                searchSec = (el / 1000).toInt()
+                if (el > limit) break
+                val mine = queue.firstOrNull { it.uid == myUid }
+                // Đã được chủ phòng khác giữ chỗ
+                if (mine?.room != null) {
+                    stopListen()
+                    Rooms.dequeue()
+                    guest = true
+                    isHost = false
+                    runGuest(mine.room, alreadyMember = true)
+                    return true
+                }
+                val range = if (el < 6_000L) 50 else 150
+                val now = Net.serverNow()
+                val cands = queue.filter {
+                    it.room == null && now - it.at < 30_000L && kotlin.math.abs(it.rating - myRating) <= range
+                }
+                if (cands.size >= 2 && cands.any { it.uid == myUid }) {
+                    val hostQ = cands.minWith(compareBy<Q>({ it.at }, { it.uid }))
+                    if (hostQ.uid == myUid) {
+                        val rid = Rooms.create("ranked", prefs.name.ifBlank { "Bạn" }, prefs.avatar, myRating)
+                        if (rid != null) {
+                            val got = ArrayList<Q>()
+                            for (o in cands.filter { it.uid != myUid }.take(3)) {
+                                if (Rooms.claim(o.uid, rid)) got.add(o)
+                            }
+                            if (got.isNotEmpty()) {
+                                for ((i, o) in got.withIndex()) {
+                                    Net.ref("rooms/$rid/players/${o.uid}").setValue(Rooms.me(o.name, o.avatar, o.rating))
+                                    players.add(PlayerState(i + 1, o.name, isBot = false, palette = i + 1, rating = o.rating, avatar = o.avatar, uid = o.uid))
+                                    fx.play("lock")
+                                }
+                                Rooms.setState(rid, "playing")
+                                netRoom = rid
+                                stopListen()
+                                Rooms.dequeue()
+                                delay(1_200)
+                                return true
+                            } else {
+                                Rooms.cleanup(rid)
+                            }
+                        }
+                    }
+                }
+                delay(700)
+            }
+        } finally {
+            stopListen()
+        }
+        Rooms.dequeue()
+        return false
+    }
+
+    // ------------------------------------------------------------------ Trực tuyến: người tham gia
+
+    /** Máy người tham gia: hiện phòng chờ, rồi theo dõi trạng thái trận do chủ phòng phát. */
+    private suspend fun runGuest(rid: String, alreadyMember: Boolean) = coroutineScope {
+        netRoom = rid
+        roomCode = rid
+        isHost = false
+        guest = true
+        ranked = false
+        phase = Phase.LOBBY
+        val myUid = Net.uid
+        if (!alreadyMember) {
+            val err = Rooms.join(rid, prefs.name.ifBlank { "Bạn" }, prefs.avatar, prefs.ladder.rating)
+            if (err != null) {
+                netError = err
+                return@coroutineScope
+            }
+        }
+        Net.setInMatch(true)
+        var started = false
+        var lastLive = SystemClock.elapsedRealtime()
+        unsubs += Rooms.listen("rooms/$rid") { snap ->
+            if (!snap.exists()) {
+                if (!started) netError = "Chủ phòng đã đóng phòng"
+                return@listen
+            }
+            if (snap.child("kind").getValue(String::class.java) == "ranked") ranked = true
+            if (!started) {
+                val ms = Rooms.members(snap)
+                val hostUid = snap.child("host").getValue(String::class.java)
+                val sorted = ms.sortedBy { if (it.uid == myUid) 0 else if (it.uid == hostUid) 1 else 2 }
+                players.clear()
+                sorted.forEachIndexed { i, m ->
+                    players.add(PlayerState(i, m.name, isBot = false, palette = i, rating = m.rating, avatar = m.avatar, uid = m.uid))
+                }
+            }
+            if (snap.child("state").getValue(String::class.java) == "playing") started = true
+        }
+        unsubs += Rooms.listen("live/$rid") { snap ->
+            if (!snap.exists()) return@listen
+            lastLive = SystemClock.elapsedRealtime()
+            matchStarted = true
+            applyLive(snap)
+        }
+        // Đồng hồ phía người tham gia
+        launch {
+            var lastSec = -1
+            while (true) {
+                delay(50)
+                if (phase == Phase.PLAY && deadlineServer > 0L && !reveal) {
+                    timeLeftMs = (deadlineServer - Net.serverNow()).coerceIn(0L, timeTotalMs)
+                    val sec = ((timeLeftMs + 999) / 1000).toInt()
+                    if (sec != lastSec) {
+                        lastSec = sec
+                        if (sec in 1..3) fx.play("tick_hi") else if (sec > 0) fx.play("tick")
+                    }
+                } else if (reveal) {
+                    timeLeftMs = 0L
+                }
+                // Mất kết nối với chủ phòng
+                if (matchStarted && phase != Phase.END && SystemClock.elapsedRealtime() - lastLive > 20_000L) {
+                    banner = "Mất kết nối với chủ phòng"
+                    winners = emptySet()
+                    phase = Phase.END
+                }
+            }
+        }
+        awaitCancellation()
+    }
+
+    private var guestKey = ""
+    private var guestTurnKey = ""
+    private var guestP1: Job? = null
+    private var guestP1Score = 0
+    private var guestRated = false
+
+    private fun applyLive(s: com.google.firebase.database.DataSnapshot) {
+        val myUid = Net.uid
+        val list = s.child("players").children.map { c ->
+            PlayerState(
+                id = c.child("id").getValue(Long::class.java)?.toInt() ?: 0,
+                name = c.child("name").getValue(String::class.java) ?: "?",
+                isBot = c.child("persona").getValue(String::class.java) != null,
+                palette = c.child("palette").getValue(Long::class.java)?.toInt() ?: 0,
+                score = c.child("score").getValue(Long::class.java)?.toInt() ?: 0,
+                rating = c.child("rating").getValue(Long::class.java)?.toInt() ?: 0,
+                ratingDelta = c.child("delta").getValue(Long::class.java)?.toInt()?.takeIf { it != -999 },
+                avatar = c.child("avatar").getValue(Long::class.java)?.toInt() ?: -1,
+                uid = c.child("uid").getValue(String::class.java),
+            )
+        }
+        val myHostId = list.firstOrNull { it.uid == myUid }?.id ?: return
+        fun map(id: Int) = when (id) { myHostId -> 0; 0 -> myHostId; else -> id }
+        val newPart = s.child("part").getValue(Long::class.java)?.toInt() ?: 0
+        val newPhase = runCatching { Phase.valueOf(s.child("phase").getValue(String::class.java) ?: "INTRO") }.getOrDefault(Phase.INTRO)
+        if (newPart != part && newPhase == Phase.INTRO) {
+            fx.play("chime")
+            fx.say("Chào mừng đến với phần thi ${PART_NAMES.getOrElse(newPart) { "" }}")
+        }
+        part = newPart
+        introLeft = s.child("intro").getValue(Long::class.java)?.toInt() ?: 0
+        qTotal = s.child("qTotal").getValue(Long::class.java)?.toInt() ?: 0
+        deadlineServer = s.child("deadline").getValue(Long::class.java) ?: 0L
+        timeTotalMs = (s.child("total").getValue(Long::class.java) ?: 1L).coerceAtLeast(1L)
+        val newReveal = s.child("reveal").getValue(Boolean::class.java) == true
+        banner = (s.child("banner").getValue(String::class.java) ?: "").replace("Bạn", "Chủ phòng")
+        roundText = s.child("round").getValue(String::class.java) ?: ""
+        turnId = s.child("turn").getValue(Long::class.java)?.toInt()?.takeIf { it >= 0 }?.let(::map)
+        starId = s.child("star").getValue(Long::class.java)?.toInt()?.takeIf { it >= 0 }?.let(::map)
+        locked = (s.child("locked").getValue(String::class.java) ?: "").split(",").mapNotNull { it.toIntOrNull()?.let(::map) }.toSet() +
+            (if (humanChoice != null && part >= 2) setOf(0) else emptySet())
+
+        // Danh sách người chơi theo góc nhìn của máy này (mình luôn là số 0)
+        val mapped = list.map { it.copy(id = map(it.id)) }.sortedBy { it.id }.map {
+            if (it.id == 0 && part == 1 && guestP1Score > it.score) it.copy(score = guestP1Score) else it
+        }
+        players.clear()
+        players.addAll(mapped)
+
+        // Phần 1: mỗi người tự trả lời câu của mình trên máy mình
+        if (part == 1 && newPhase == Phase.PLAY && guestP1 == null && deadlineServer > 0L) {
+            guestP1 = viewModelScope.launch { guestPart1() }
+        }
+        if (part >= 2) {
+            val qs = s.child("q")
+            val key = "$part-${s.child("qNo").getValue(Long::class.java) ?: 0}"
+            if (qs.exists()) {
+                val opts = qs.child("o").children.map { it.getValue(String::class.java) ?: "" }
+                val ans = qs.child("a").getValue(Long::class.java)?.toInt() ?: -1
+                val qq = Question(
+                    qs.child("id").getValue(String::class.java) ?: "",
+                    qs.child("f").getValue(String::class.java) ?: "",
+                    qs.child("l").getValue(Long::class.java)?.toInt() ?: 1,
+                    qs.child("t").getValue(String::class.java) ?: "",
+                    if (opts.size == 4) opts else listOf("", "", "", ""),
+                    ans,
+                )
+                if (key != guestKey) {
+                    guestKey = key
+                    humanChoice = null
+                    qNo = s.child("qNo").getValue(Long::class.java)?.toInt() ?: 0
+                    show(qq)
+                } else {
+                    question = qq
+                }
+                if (newReveal && !reveal) {
+                    fx.stopVoice()
+                    val hc = humanChoice
+                    if (hc != null || turnId == 0) {
+                        result(qq, hc == ans)
+                        fx.play(if (hc == ans) "correct" else "wrong")
+                    }
+                }
+            } else {
+                question = null
+            }
+            // Ngôi sao cho câu sau của mình
+            val rNow = roundText.substringAfter("Vòng ").substringBefore("/").toIntOrNull() ?: 0
+            val rMax = roundText.substringAfter("/").toIntOrNull() ?: 5
+            val myTurnNow = part == 3 && turnId == 0 && !newReveal
+            if (myTurnNow && key != guestTurnKey) {
+                guestTurnKey = key
+                myNextStar = false
+                canStarNext = rNow < rMax
+            } else if (!myTurnNow && canStarNext) {
+                canStarNext = false
+            }
+            reveal = newReveal
+        }
+
+        if (newPhase == Phase.END && phase != Phase.END) {
+            winners = (s.child("winners").getValue(String::class.java) ?: "").split(",").mapNotNull { it.toIntOrNull()?.let(::map) }.toSet()
+            flush()
+            if (!guestRated) {
+                guestRated = true
+                rated = true
+                val d = players.firstOrNull { it.id == 0 }?.ratingDelta ?: 0
+                if (d > 0) prefs.ladder.addMine(d)
+                prefs.played = prefs.played + 1
+                if (0 in winners) prefs.wins = prefs.wins + 1
+                Net.setInMatch(false)
+                Net.pushProfile()
+            }
+            if (0 in winners) { fx.play("win"); fx.say("Xin chúc mừng, bạn đã chiến thắng!") } else { fx.play("lose"); fx.say("Chúc bạn may mắn lần sau!") }
+        }
+        phase = if (newPhase == Phase.REVEAL) Phase.PLAY else newPhase
+    }
+
+    /** Phần 1 trên máy người tham gia: câu hỏi riêng, gửi điểm lên cho chủ phòng. */
+    private suspend fun guestPart1() {
+        val rid = netRoom ?: return
+        val qs = pick(60, listOf(1, 2))
+        var i = 0
+        while (Net.serverNow() < deadlineServer && i < qs.size && part == 1) {
+            val q = qs[i]
+            show(q)
+            qNo = i + 1
+            humanChoice = null
+            reveal = false
+            skipFlag = false
+            while (Net.serverNow() < deadlineServer && humanChoice == null && !skipFlag && part == 1) delay(40)
+            val c = humanChoice
+            if (skipFlag && c == null) result(q, false)
+            if (c != null) {
+                result(q, c == q.answer)
+                reveal = true
+                if (c == q.answer) {
+                    guestP1Score += 10
+                    addScore(0, 10)
+                    Rooms.answer(rid, mapOf("p1" to guestP1Score))
+                    fx.play("correct")
+                } else {
+                    fx.play("wrong")
+                }
+                delay(500)
+                reveal = false
+            }
+            i++
+        }
+        Rooms.answer(rid, mapOf("p1" to guestP1Score))
+        question = null
+        flush()
     }
 
     // ------------------------------------------------------------------ Tiện ích

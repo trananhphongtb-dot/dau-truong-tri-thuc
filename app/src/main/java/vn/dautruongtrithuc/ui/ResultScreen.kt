@@ -154,8 +154,8 @@ private fun PodiumRow(
                 Avatar(
                     p.name, p.palette,
                     size = if (win) 64.dp else 50.dp,
-                    rating = if (p.personaId != null || p.id == 0) "${p.rating + (p.ratingDelta ?: 0)}" else null,
-                    friend = p.personaId?.let { it in friends },
+                    rating = if (p.personaId != null || p.uid != null || p.id == 0) "${p.rating + (p.ratingDelta ?: 0)}" else null,
+                    friend = if (p.id == 0) null else p.friendKey?.let { it in friends },
                     onAddFriend = { onAddFriend(p) },
                     art = p.avatar,
                     cap = !win,

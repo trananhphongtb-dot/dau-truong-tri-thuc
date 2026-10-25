@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "617719961214",
+    "firebase_url": "https://dau-truong-tri-thuc-2026-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "dau-truong-tri-thuc-2026",
+    "storage_bucket": "dau-truong-tri-thuc-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:617719961214:android:883213893af07077056a2f",
+        "android_client_info": {
+          "package_name": "vn.dautruongtrithuc.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "617719961214-dbdtc4qcquueg9qls1s13gg9gg0b2e9r.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "vn.dautruongtrithuc.app",
+            "certificate_hash": "b2c7593215d297be3fee959b800c74bb2ca0bf13"
+          }
+        },
+        {
+          "client_id": "617719961214-ta4n0o3kloktcihrooiinjb0q5f8pi9v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVqcxX625jRV1avSNoE9OitHAusKNMEJU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "617719961214-ta4n0o3kloktcihrooiinjb0q5f8pi9v.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

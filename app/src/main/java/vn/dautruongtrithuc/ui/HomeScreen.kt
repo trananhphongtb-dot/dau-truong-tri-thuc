@@ -33,6 +33,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +56,7 @@ import vn.dautruongtrithuc.data.BoardRow
 import vn.dautruongtrithuc.data.Leaderboard
 import vn.dautruongtrithuc.data.OnlineConfig
 import vn.dautruongtrithuc.data.Personas
+import vn.dautruongtrithuc.data.Net
 import vn.dautruongtrithuc.data.Prefs
 import vn.dautruongtrithuc.data.QuestionBank
 import vn.dautruongtrithuc.game.MatchConfig
@@ -261,9 +265,12 @@ private fun ChoiceRow(items: List<String>, selected: Int, onSelect: (Int) -> Uni
 private fun RankTab(prefs: Prefs) {
     val ctx = LocalContext.current
     var period by rememberSaveable { mutableIntStateOf(0) }
-    var friends by remember { mutableStateOf(prefs.friends().toSet()) }
-    val rows = remember(period) { Leaderboard.rows(prefs, period) }
-    val myIdx = rows.indexOfFirst { it.personaId == null }
+    var local by remember { mutableStateOf(prefs.friends().toSet()) }
+    val friends = local + Net.friends.keys
+    var real by remember { mutableStateOf<List<Pair<vn.dautruongtrithuc.data.NetUser, Int>>>(emptyList()) }
+    LaunchedEffect(period, Net.uid) { real = Net.topUsers(period) }
+    val rows = remember(period, real) { Leaderboard.rows(prefs, period, real) }
+    val myIdx = rows.indexOfFirst { it.isMe }
     val shown = rows.take(100)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -283,8 +290,10 @@ private fun RankTab(prefs: Prefs) {
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             itemsIndexed(shown) { i, r ->
                 BoardRowView(i + 1, r, friends, period) { id, name ->
-                    prefs.addFriend(id)
-                    friends = prefs.friends().toSet()
+                    if (r.uid != null) Net.addFriend(id, prefs.name) else {
+                        prefs.addFriend(id)
+                        local = prefs.friends().toSet()
+                    }
                     Toast.makeText(ctx, "Đã thêm $name vào bạn bè", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -299,7 +308,7 @@ private fun RankTab(prefs: Prefs) {
 
 @Composable
 private fun BoardRowView(rank: Int, r: BoardRow, friends: Set<String>, period: Int, onAdd: (String, String) -> Unit) {
-    val me = r.personaId == null
+    val me = r.isMe
     Row(
         Modifier
             .fillMaxWidth()
@@ -318,7 +327,7 @@ private fun BoardRowView(rank: Int, r: BoardRow, friends: Set<String>, period: I
             modifier = Modifier.width(40.dp),
         )
         Spacer(Modifier.width(6.dp))
-        val id = r.personaId
+        val id = r.key
         Avatar(
             r.name, r.palette, size = 38.dp,
             friend = id?.let { it in friends },
@@ -347,8 +356,13 @@ private fun onlineCount(): Int {
 private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () -> Unit) {
     var name by remember { mutableStateOf(prefs.name) }
     var editing by remember { mutableStateOf(false) }
-    var friends by remember { mutableStateOf(prefs.friends()) }
+    var local by remember { mutableStateOf(prefs.friends()) }
+    val friends = local + Net.friends.keys.filter { it !in local }
     var removing by remember { mutableStateOf<String?>(null) }
+    val activity = LocalContext.current as? android.app.Activity
+    val scope = rememberCoroutineScope()
+    var signing by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
     var myArt by remember { mutableIntStateOf(prefs.avatar) }
     var picking by remember { mutableStateOf(false) }
 
@@ -389,21 +403,54 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
                     )
                     TextButton(onClick = {
                         name = name.trim().ifBlank { "Bạn" }
-                        prefs.name = name
+                        prefs.name = name; Net.pushProfile()
                         editing = false
                         onNameChanged()
                     }) { Text("Lưu", color = Gold, fontWeight = FontWeight.Black) }
                 } else {
                     Column(Modifier.weight(1f)) {
                         OneLine(name, size = 20, weight = FontWeight.Black)
-                        Text("Khách · chưa đăng nhập", color = TextMuted, fontSize = 12.sp)
+                        Text(
+                            if (Net.signedIn) "Đã đăng nhập Google" else "Khách · chưa đăng nhập",
+                            color = if (Net.signedIn) GreenOk else TextMuted,
+                            fontSize = 12.sp,
+                        )
                     }
                     TextButton(onClick = { editing = true }) { Text("✎ Sửa", color = Gold, fontWeight = FontWeight.Bold) }
                 }
             }
         }
+        if (!Net.signedIn) {
+            GoldButton(
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                onClick = {
+                    if (signing || activity == null) return@GoldButton
+                    signing = true
+                    scope.launch {
+                        val err = Net.signInWithGoogle(activity)
+                        signing = false
+                        if (err == null) {
+                            name = prefs.name
+                            onNameChanged()
+                            Toast.makeText(ctx, "Đã đăng nhập", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(ctx, err, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+            ) {
+                Text(
+                    if (signing) "Đang đăng nhập…" else "G  Đăng nhập Google để thi trực tuyến",
+                    color = Ink,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 15.sp,
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            val rank = remember { Leaderboard.myRank(prefs) }
+            var real by remember { mutableStateOf<List<Pair<vn.dautruongtrithuc.data.NetUser, Int>>>(emptyList()) }
+            LaunchedEffect(Net.uid) { real = Net.topUsers(0) }
+            val rank = remember(real) { Leaderboard.myRank(prefs, 0, real) }
             Stat("Điểm xếp hạng", "${prefs.ladder.rating}", Modifier.weight(1f))
             Stat("Hạng", "#$rank", Modifier.weight(1f))
             Stat("Thắng / Trận", "${prefs.wins}/${prefs.played}", Modifier.weight(1f))
@@ -423,11 +470,13 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
                 )
             }
         } else {
-            val sorted = friends.sortedByDescending { id -> Personas.get(id)?.let { Personas.isOnline(it) } == true }
+            fun onlineOf(id: String): Boolean = Net.friends[id]?.online ?: (Personas.get(id)?.let { Personas.isOnline(it) } == true)
+            val sorted = friends.sortedByDescending { onlineOf(it) }
             sorted.forEachIndexed { i, f ->
                 val pp = Personas.get(f)
-                val fname = pp?.name ?: f
-                val on = pp != null && Personas.isOnline(pp)
+                val nu = Net.friends[f]
+                val fname = nu?.name ?: pp?.name ?: f
+                val on = onlineOf(f)
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -437,14 +486,19 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Avatar(fname, pp?.palette ?: (i + 1), size = 40.dp, friend = true,
-                        rating = pp?.let { "${prefs.ladder.ratingOf(it)}" }, art = pp?.avatar ?: -1)
+                        rating = nu?.let { "${it.rating}" } ?: pp?.let { "${prefs.ladder.ratingOf(it)}" },
+                        art = nu?.avatar ?: pp?.avatar ?: -1)
                     Spacer(Modifier.width(22.dp))
                     Column(Modifier.weight(1f)) {
                         OneLine(fname, size = 15, weight = FontWeight.Bold)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(8.dp).clip(CircleShape).background(if (on) GreenOk else Color(0x55FFFFFF)))
                             Spacer(Modifier.width(6.dp))
-                            Text(if (on) "Đang trực tuyến" else "Ngoại tuyến", color = if (on) GreenOk else TextMuted, fontSize = 12.sp)
+                            Text(
+                                if (on && nu?.inMatch == true) "Đang trong trận" else if (on) "Đang trực tuyến" else "Ngoại tuyến",
+                                color = if (on) GreenOk else TextMuted,
+                                fontSize = 12.sp,
+                            )
                         }
                     }
                     TextButton(onClick = { removing = f }) { Text("Bỏ", color = TextMuted) }
@@ -457,7 +511,7 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
     if (picking) {
         AvatarPicker(name, myArt, onDismiss = { picking = false }) {
             myArt = it
-            prefs.avatar = it
+            prefs.avatar = it; Net.pushProfile()
             picking = false
             onNameChanged()
         }
@@ -469,11 +523,11 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
             onDismissRequest = { removing = null },
             containerColor = Navy1,
             title = { Text("Bỏ kết bạn?", color = TextMain, fontWeight = FontWeight.Bold) },
-            text = { Text("Xóa ${Personas.get(r)?.name ?: r} khỏi danh sách bạn bè.", color = TextMuted) },
+            text = { Text("Xóa ${Net.friends[r]?.name ?: Personas.get(r)?.name ?: r} khỏi danh sách bạn bè.", color = TextMuted) },
             confirmButton = {
                 TextButton(onClick = {
-                    prefs.removeFriend(r)
-                    friends = prefs.friends()
+                    if (Net.friends.containsKey(r)) Net.removeFriend(r) else prefs.removeFriend(r)
+                    local = prefs.friends()
                     removing = null
                 }) { Text("Bỏ", color = RedBad, fontWeight = FontWeight.Bold) }
             },
@@ -614,6 +668,18 @@ private fun SettingsScreen(prefs: Prefs, fx: SoundFx, onBack: () -> Unit) {
             }
         }
 
+        if (Net.signedIn) {
+            Text("TÀI KHOẢN", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            GlassCard(Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Đã đăng nhập Google", color = TextMain, modifier = Modifier.weight(1f))
+                    TextButton(onClick = {
+                        Net.signOut()
+                        Toast.makeText(ctx, "Đã đăng xuất", Toast.LENGTH_SHORT).show()
+                    }) { Text("Đăng xuất", color = RedBad, fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
         Spacer(Modifier.height(10.dp))
         Text(
             "Phiên bản ${appVersion(ctx)}",

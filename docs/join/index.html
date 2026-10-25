@@ -17,8 +17,8 @@ a.btn{display:block;margin:14px 0;padding:16px;border-radius:16px;font-weight:90
 <a class="btn blue" href="https://play.google.com/store/apps/details?id=vn.dautruongtrithuc.app">Chưa có app? Tải về</a>
 </div>
 <script>
-var r=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'');
-if(r) document.getElementById('msg').textContent='Bạn được mời vào phòng #'+r+'.';
+var r=(new URLSearchParams(location.search).get('r')||'').replace(/[^A-Za-z0-9_-]/g,'');
+if(r) document.getElementById('msg').textContent='Bạn được mời vào một phòng thi đấu.';
 var url='intent://join?r='+r+'#Intent;scheme=dttt;package=vn.dautruongtrithuc.app;S.browser_fallback_url='+encodeURIComponent('https://play.google.com/store/apps/details?id=vn.dautruongtrithuc.app')+';end';
 var a=document.getElementById('open');a.href=/android/i.test(navigator.userAgent)?url:'dttt://join?r='+r;
 if(/android/i.test(navigator.userAgent)&&r) setTimeout(function(){location.href=url},400);

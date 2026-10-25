@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import vn.dautruongtrithuc.audio.SoundFx
+import vn.dautruongtrithuc.data.Net
 import vn.dautruongtrithuc.data.Prefs
 import vn.dautruongtrithuc.game.MatchConfig
 import vn.dautruongtrithuc.game.MatchViewModel
@@ -79,14 +80,31 @@ fun MatchScreen(
     var askExit by remember { mutableStateOf(false) }
     BackHandler(enabled = vm.phase != Phase.END) { askExit = true }
     val ctx = LocalContext.current
-    var friends by remember { mutableStateOf(prefs.friends().toSet()) }
+    var localFriends by remember { mutableStateOf(prefs.friends().toSet()) }
+    val friends = localFriends + Net.friends.keys
     val addFriend: (vn.dautruongtrithuc.game.PlayerState) -> Unit = { p ->
-        val id = p.personaId
-        if (id != null && id !in friends) {
-            prefs.addFriend(id)
-            friends = prefs.friends().toSet()
+        val pid = p.personaId
+        val uid = p.uid
+        if (pid != null && pid !in friends) {
+            prefs.addFriend(pid)
+            localFriends = prefs.friends().toSet()
+            android.widget.Toast.makeText(ctx, "Đã thêm ${p.name} vào bạn bè", android.widget.Toast.LENGTH_SHORT).show()
+        } else if (pid == null && uid != null && uid !in friends) {
+            Net.addFriend(uid, prefs.name)
             android.widget.Toast.makeText(ctx, "Đã thêm ${p.name} vào bạn bè", android.widget.Toast.LENGTH_SHORT).show()
         }
+    }
+
+    val err = vm.netError
+    if (err != null) {
+        AlertDialog(
+            onDismissRequest = onHome,
+            containerColor = Navy1,
+            title = { Text("Không vào được phòng", color = TextMain, fontWeight = FontWeight.Bold) },
+            text = { Text(err, color = TextMuted) },
+            confirmButton = { TextButton(onClick = onHome) { Text("Về sảnh", color = Gold, fontWeight = FontWeight.Bold) } },
+        )
+        return
     }
 
     if (vm.phase == Phase.END) {
@@ -114,6 +132,8 @@ fun MatchScreen(
             onStart = { vm.startRoom() },
             prefs = prefs,
             onInvite = { vm.inviteFriend(it) },
+            isHost = vm.isHost,
+            netRoom = vm.netRoom,
         )
         return
     }
@@ -197,7 +217,7 @@ fun MatchScreen(
             IntroOverlay(part = vm.part, left = vm.introLeft, solo = vm.solo)
         }
         if (vm.phase == Phase.SEARCH) {
-            SearchOverlay(found = vm.players.size - 1, secs = vm.searchSec, onCancel = { vm.stop(); onHome() })
+            SearchOverlay(found = vm.players.size - 1, secs = vm.searchSec, failed = vm.searchFailed, onCancel = { vm.stop(); onHome() })
         }
     }
 
@@ -511,7 +531,7 @@ private fun rulesFor(part: Int, solo: Boolean): String = when (part) {
 
 
 @Composable
-private fun SearchOverlay(found: Int, secs: Int, onCancel: () -> Unit) {
+private fun SearchOverlay(found: Int, secs: Int, failed: Boolean, onCancel: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
@@ -523,7 +543,7 @@ private fun SearchOverlay(found: Int, secs: Int, onCancel: () -> Unit) {
             Text("⚡", color = Gold, fontSize = 44.sp)
             Spacer(Modifier.height(12.dp))
             Text(
-                if (found >= 3) "ĐÃ ĐỦ NGƯỜI!" else "ĐANG TÌM ĐỐI THỦ…",
+                if (failed) "CHƯA TÌM ĐƯỢC ĐỐI THỦ" else if (found >= 3) "ĐÃ ĐỦ NGƯỜI!" else "ĐANG TÌM ĐỐI THỦ…",
                 color = Gold,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Black,
@@ -550,8 +570,8 @@ private fun SearchOverlay(found: Int, secs: Int, onCancel: () -> Unit) {
             Spacer(Modifier.height(18.dp))
             Text("${found + 1}/4 người · ${secs}s", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(26.dp))
-            if (found < 3) {
-                TextButton(onClick = onCancel) { Text("Hủy tìm", color = TextMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
+            if (found < 3 || failed) {
+                TextButton(onClick = onCancel) { Text(if (failed) "Về sảnh" else "Hủy tìm", color = TextMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
             }
         }
     }
@@ -568,6 +588,8 @@ private fun Lobby(
     onStart: () -> Unit,
     prefs: Prefs,
     onInvite: (String) -> Boolean,
+    isHost: Boolean = true,
+    netRoom: String? = null,
 ) {
     val ctx = LocalContext.current
     var askLeave by remember { mutableStateOf(false) }
@@ -586,12 +608,16 @@ private fun Lobby(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("PHÒNG CHỜ", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                Text("Phòng #$code", color = Gold, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                Text(if (isHost) "Phòng của bạn" else "Phòng của ${players.getOrNull(1)?.name ?: "bạn bè"}", color = Gold, fontSize = 22.sp, fontWeight = FontWeight.Black, maxLines = 1)
             }
             TextButton(onClick = {
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_TEXT, "Vào Đấu Trường Trí Thức thi với mình nhé! Bấm vào đây để vào phòng: ${vn.dautruongtrithuc.inviteLink(code)}")
+                    putExtra(
+                        android.content.Intent.EXTRA_TEXT,
+                        if (netRoom != null) "Vào Đấu Trường Trí Thức thi với mình nhé! Bấm vào đây để vào phòng: ${vn.dautruongtrithuc.inviteLink(netRoom)}"
+                        else "Tải Đấu Trường Trí Thức để thi đấu kiến thức cùng mình nhé!",
+                    )
                 }
                 ctx.startActivity(android.content.Intent.createChooser(send, "Mời bạn vào phòng"))
             }) { Text("Gửi link ↗", color = Gold, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
@@ -622,7 +648,7 @@ private fun Lobby(
                     Spacer(Modifier.width(4.dp))
                     Avatar(
                         p.name, p.palette, size = 42.dp, ring = p.id == 0, rating = "${p.rating}",
-                        friend = p.personaId?.let { it in friends },
+                        friend = if (p.id == 0) null else p.friendKey?.let { it in friends },
                         onAddFriend = { onAddFriend(p) },
                         art = p.avatar,
                         cap = true,
@@ -638,7 +664,11 @@ private fun Lobby(
         }
         Spacer(Modifier.weight(1f))
         Text(
-            if (players.size < 2) "Cần ít nhất 2 người để bắt đầu" else "Trận tính điểm xếp hạng",
+            when {
+                !isHost -> "Đang chờ chủ phòng bắt đầu…"
+                players.size < 2 -> "Cần ít nhất 2 người để bắt đầu"
+                else -> "Trận tính điểm xếp hạng"
+            },
             color = TextMuted,
             fontSize = 13.sp,
             modifier = Modifier.fillMaxWidth(),
@@ -648,7 +678,7 @@ private fun Lobby(
             BlueButton(modifier = Modifier.weight(1f).height(54.dp), onClick = { askLeave = true }) {
                 Text("Rời phòng", color = RedBad, fontWeight = FontWeight.Black, fontSize = 16.sp)
             }
-            GoldButton(
+            if (isHost) GoldButton(
                 modifier = Modifier.weight(1f).height(54.dp),
                 onClick = { if (players.size >= 2) onStart() },
             ) {
@@ -664,17 +694,46 @@ private fun Lobby(
     if (inviting) {
         val list = prefs.friends().mapNotNull { vn.dautruongtrithuc.data.Personas.get(it) }
             .sortedByDescending { vn.dautruongtrithuc.data.Personas.isOnline(it) }
+        val real = Net.friends.values.sortedByDescending { it.online && !it.inMatch }
         AlertDialog(
             onDismissRequest = { inviting = false },
             containerColor = Navy1,
             title = { Text("Mời bạn bè", color = Gold, fontWeight = FontWeight.Black) },
             text = {
-                if (list.isEmpty()) {
+                if (list.isEmpty() && real.isEmpty()) {
                     Text("Chưa có bạn bè. Bấm dấu + trên ảnh người chơi để kết bạn.", color = TextMuted)
                 } else Column(
                     Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    real.forEach { u ->
+                        val free = u.online && !u.inMatch
+                        val inRoom = players.any { it.uid == u.uid }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(u.name, 1, size = 38.dp, art = u.avatar)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                OneLine(u.name, size = 15, weight = FontWeight.Bold)
+                                Text(
+                                    when {
+                                        inRoom -> "Đã vào phòng"
+                                        !u.online -> "Ngoại tuyến"
+                                        u.inMatch -> "Đang trong trận"
+                                        u.uid in invited -> "Đã mời"
+                                        else -> "Đang trực tuyến"
+                                    },
+                                    color = if (free) GreenOk else TextMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            if (free && !inRoom && u.uid !in invited && netRoom != null) {
+                                TextButton(onClick = {
+                                    Net.invite(u.uid, prefs.name, netRoom)
+                                    invited.add(u.uid)
+                                }) { Text("Mời", color = Gold, fontWeight = FontWeight.Black) }
+                            }
+                        }
+                    }
                     list.forEach { pp ->
                         val on = vn.dautruongtrithuc.data.Personas.isOnline(pp)
                         val busy = on && vn.dautruongtrithuc.data.Personas.isBusy(pp)

@@ -234,14 +234,19 @@ class Ladder(context: Context) {
         }
         entries.forEachIndexed { i, e ->
             val id = e.first
-            if (id == null) {
-                rating = rating + out[i]
-                addPeriodPoints(out[i])
-            } else {
-                addPersonaDelta(id, out[i])
+            when {
+                id == null || id == "#me" -> addMine(out[i])
+                id.startsWith("#") -> {}                 // người thật khác: máy họ tự cộng
+                else -> addPersonaDelta(id, out[i])
             }
         }
         return out
+    }
+
+    /** Cộng điểm xếp hạng cho chính mình (và điểm theo kỳ). */
+    fun addMine(d: Int) {
+        rating = rating + d
+        addPeriodPoints(d)
     }
 
     companion object {
@@ -249,11 +254,22 @@ class Ladder(context: Context) {
     }
 }
 
-data class BoardRow(val personaId: String?, val name: String, val palette: Int, val province: String, val value: Int, val avatar: Int = -1)
+data class BoardRow(
+    val personaId: String?,
+    val name: String,
+    val palette: Int,
+    val province: String,
+    val value: Int,
+    val avatar: Int = -1,
+    val uid: String? = null,
+) {
+    val isMe get() = personaId == null && uid == null
+    val key get() = personaId ?: uid
+}
 
 object Leaderboard {
     /** kind: 0 tất cả (điểm xếp hạng), 1 tuần, 2 tháng, 3 năm (điểm kiếm được trong kỳ). */
-    fun rows(prefs: Prefs, kind: Int): List<BoardRow> {
+    fun rows(prefs: Prefs, kind: Int, real: List<Pair<NetUser, Int>> = emptyList()): List<BoardRow> {
         val l = prefs.ladder
         val list = ArrayList<BoardRow>()
         for (p in Personas.all) {
@@ -261,10 +277,16 @@ object Leaderboard {
             if (kind != 0 && v <= 0) continue
             list.add(BoardRow(p.id, p.name, p.palette, p.province, v, p.avatar))
         }
+        for ((u, v) in real) {
+            if (u.uid == Net.uid) continue
+            if (kind != 0 && v <= 0) continue
+            list.add(BoardRow(null, u.name, 1, "", v, u.avatar, u.uid))
+        }
         val mine = if (kind == 0) l.rating else l.myPeriodPoints(kind)
         list.add(BoardRow(null, prefs.name.ifBlank { "Bạn" }, 0, "", mine, prefs.avatar))
-        return list.sortedWith(compareByDescending<BoardRow> { it.value }.thenBy { it.personaId != null })
+        return list.sortedWith(compareByDescending<BoardRow> { it.value }.thenBy { !it.isMe })
     }
 
-    fun myRank(prefs: Prefs, kind: Int = 0): Int = rows(prefs, kind).indexOfFirst { it.personaId == null } + 1
+    fun myRank(prefs: Prefs, kind: Int = 0, real: List<Pair<NetUser, Int>> = emptyList()): Int =
+        rows(prefs, kind, real).indexOfFirst { it.isMe } + 1
 }
