@@ -13,8 +13,8 @@ android {
         applicationId = "vn.dautruongtrithuc.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.3.2"
+        versionCode = 15
+        versionName = "0.3.3"
     }
 
     // Khóa ký cố định (lấy từ GitHub Secrets khi build); không có thì dùng khóa debug mặc định

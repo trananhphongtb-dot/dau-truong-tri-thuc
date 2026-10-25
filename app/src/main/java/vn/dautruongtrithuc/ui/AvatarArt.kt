@@ -210,13 +210,13 @@ object AvatarArt {
 
     // Mũ cử nhân (vẽ tràn lên trên khung ảnh, tọa độ theo khung 100×100 của ảnh)
     private val capOps: List<Op> = listOf(
-        P("M16 -24 L16 20 Q50 30 84 20 L84 -24 Z", c(0xFF1E3A8A), c(0xFF0B2A7A), 1.5f),
-        P("M16 14 Q50 24 84 14", null, c(0xFF3B5BDB), 2.5f),
-        P("M-20 -30 L50 -45 L120 -30 L50 -15 Z", c(0xFF2563EB), c(0xFF0B2A7A), 2f),
-        P("M-20 -30 L50 -15 L120 -30 L120 -25 L50 -10 L-20 -25 Z", c(0xFF1D4ED8)),
-        C(50f, -30f, 4f, c(0xFFFBBF24)),
-        P("M50 -30 L110 -27 L110 8", null, c(0xFFFBBF24), 3f),
-        P("M105 8 L115 8 L118 24 L102 24 Z", c(0xFFFBBF24)),
+        // Nhìn từ dưới lên: mép trước dày phía trên, thấy mặt dưới tấm vuông, thân mũ ngắn
+        P("M-18 -21 L50 -37 L118 -21 L118 -16 L50 -32 L-18 -16 Z", c(0xFF3B82F6)),
+        P("M-18 -16 L50 -32 L118 -16 L50 -2 Z", c(0xFF172F73), c(0xFF0B2A7A), 2f),
+        P("M21 -14 L21 8 Q50 17 79 8 L79 -14 Q50 -6 21 -14 Z", c(0xFF1E40AF), c(0xFF0B2A7A), 1.5f),
+        P("M21 3 Q50 12 79 3", null, c(0xFF3B5BDB), 2.5f),
+        P("M112 -17 L112 14", null, c(0xFFFBBF24), 3f),
+        P("M107 14 L117 14 L120 30 L104 30 Z", c(0xFFFBBF24)),
     )
 
     // Vòng nguyệt quế vàng hai nhánh ôm quanh ảnh, có nơ đỏ phía dưới

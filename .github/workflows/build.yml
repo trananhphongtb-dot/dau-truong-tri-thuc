@@ -39,3 +39,15 @@ jobs:
         with:
           name: DauTruongTriThuc-debug
           path: app/build/outputs/apk/debug/*.apk
+      - name: Build release AAB (Google Play)
+        if: env.KEYSTORE_FILE != ''
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: gradle bundleRelease --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: env.KEYSTORE_FILE != ''
+        with:
+          name: DauTruongTriThuc-release-aab
+          path: app/build/outputs/bundle/release/*.aab

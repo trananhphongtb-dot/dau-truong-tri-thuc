@@ -129,11 +129,15 @@ fun Avatar(
         }
         if (cap) AvatarArt.Cap(Modifier.matchParentSize())
         if (rating != null) {
+            // Ảnh nhỏ (trên bục thi): ô điểm nhỏ, nằm sát mép để không che mặt
+            val small = size < 56.dp
             Pill(
                 rating,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .offset(x = size * 0.22f, y = 2.dp),
+                    .offset(x = if (small) size * 0.42f else size * 0.22f, y = if (small) size * 0.12f else 2.dp),
+                fontSize = if (small) (size.value * 0.19f).coerceIn(7f, 9f) else 10f,
+                padH = if (small) 4.dp else 7.dp,
             )
         }
         if (friend != null) {
@@ -161,14 +165,14 @@ fun Avatar(
 }
 
 @Composable
-fun Pill(text: String, modifier: Modifier = Modifier) {
+fun Pill(text: String, modifier: Modifier = Modifier, fontSize: Float = 10f, padH: Dp = 7.dp) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(GoldBrush)
-            .padding(horizontal = 7.dp, vertical = 1.dp),
+            .padding(horizontal = padH, vertical = 0.dp),
     ) {
-        Text(text, color = Ink, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(text, color = Ink, fontSize = fontSize.sp, lineHeight = (fontSize + 2).sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
     }
 }
 
