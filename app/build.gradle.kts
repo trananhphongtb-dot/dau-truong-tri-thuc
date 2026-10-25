@@ -16,9 +16,26 @@ android {
         versionName = "0.1.9"
     }
 
+    // Khóa ký cố định (lấy từ GitHub Secrets khi build); không có thì dùng khóa debug mặc định
+    val ksFile = System.getenv("KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (ksFile != null) {
+            create("upload") {
+                storeFile = ksFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (ksFile != null) signingConfig = signingConfigs.getByName("upload")
+        }
         release {
             isMinifyEnabled = false
+            if (ksFile != null) signingConfig = signingConfigs.getByName("upload")
         }
     }
     compileOptions {
