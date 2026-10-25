@@ -31,7 +31,10 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleDebug --no-daemon --stacktrace
       - name: Show signing certificate
-        run: keytool -printcert -jarfile app/build/outputs/apk/debug/*.apk | grep -E "SHA1:" | sed 's/^\s*/::notice::Signer /' || true
+        run: |
+          if [ -n "$KEYSTORE_FILE" ]; then echo "::notice::Signed with upload key"; else echo "::notice::Signed with default debug key"; fi
+          AS=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
+          $AS verify --print-certs app/build/outputs/apk/debug/*.apk | grep -i "SHA-1" | sed 's/^/::notice::/' || true
       - uses: actions/upload-artifact@v4
         with:
           name: DauTruongTriThuc-debug
