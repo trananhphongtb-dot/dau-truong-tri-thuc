@@ -161,6 +161,8 @@ fun MatchScreen(
                     field = FIELD_NAMES[q.field] ?: q.field,
                     text = q.text,
                     modifier = Modifier.fillMaxWidth().weight(1f),
+                    star = if (vm.canStarNext || (vm.part == 3 && vm.turnId == 0 && vm.myNextStar)) vm.myNextStar else null,
+                    onStar = { vm.toggleStar() },
                 )
                 Spacer(Modifier.height(10.dp))
                 val enabled = vm.canAnswer()
@@ -193,9 +195,6 @@ fun MatchScreen(
             exit = fadeOut(),
         ) {
             IntroOverlay(part = vm.part, left = vm.introLeft, solo = vm.solo)
-        }
-        if (vm.starAsk) {
-            StarOverlay(left = vm.starLeft, onYes = { vm.setStar(true) }, onNo = { vm.setStar(false) })
         }
         if (vm.phase == Phase.SEARCH) {
             SearchOverlay(found = vm.players.size - 1, secs = vm.searchSec, onCancel = { vm.stop(); onHome() })
@@ -274,7 +273,15 @@ private fun Header(vm: MatchViewModel, onClose: () -> Unit) {
 }
 
 @Composable
-private fun QuestionCard(no: Int, total: Int, field: String, text: String, modifier: Modifier) {
+private fun QuestionCard(
+    no: Int,
+    total: Int,
+    field: String,
+    text: String,
+    modifier: Modifier,
+    star: Boolean? = null,
+    onStar: () -> Unit = {},
+) {
     Box(
         modifier
             .clip(RoundedCornerShape(18.dp))
@@ -300,6 +307,21 @@ private fun QuestionCard(no: Int, total: Int, field: String, text: String, modif
                         .padding(horizontal = 10.dp, vertical = 2.dp),
                 ) {
                     Text(field, color = SkyLine, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                if (star != null) {
+                    Spacer(Modifier.width(8.dp))
+                    // Ngôi sao hy vọng cho câu sau: xám = chưa đặt, vàng = đã đặt
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (star) Color(0x40FFD45E) else Color(0x1AFFFFFF))
+                            .border(1.5.dp, if (star) Gold else Color(0x55FFFFFF), CircleShape)
+                            .clickable(onClick = onStar),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("★", color = if (star) Gold else Color(0xFF8A94A8), fontSize = 20.sp, fontWeight = FontWeight.Black)
+                    }
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -481,9 +503,9 @@ private fun rulesFor(part: Int, solo: Boolean): String = when (part) {
         "10 câu, mỗi câu 15 giây.\nĐúng nhanh nhất +30 · nhì +20 · ba +10.\nSai không bị trừ."
     }
     else -> if (solo) {
-        "5 câu, mỗi câu 10 giây.\nĐúng +10 · sai −10.\nNgôi sao hy vọng (1 lần, đặt trước khi hiện câu): đúng +20 · sai −20."
+        "5 câu, mỗi câu 10 giây.\nĐúng +10 · sai −10.\nBấm ★ góc trên câu hỏi để đặt ngôi sao hy vọng cho câu sau của mình: đúng +20 · sai −20."
     } else {
-        "Mỗi người lần lượt 1 câu, 5 vòng, 10 giây/câu.\nĐúng +10 · sai −10.\nNgôi sao hy vọng (1 lần, đặt trước khi hiện câu): đúng +20 · sai −20.\nNgười khác được giành quyền khi người chính sai: đúng +10 · sai −10."
+        "Mỗi người lần lượt 1 câu, 5 vòng, 10 giây/câu.\nĐúng +10 · sai −10.\nBấm ★ góc trên câu hỏi để đặt ngôi sao hy vọng cho câu sau của mình: đúng +20 · sai −20.\nNgười khác được giành quyền khi người chính sai: đúng +10 · sai −10."
     }
 }
 
@@ -582,7 +604,7 @@ private fun Lobby(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .height(72.dp)
+                    .height(82.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(if (p != null) Color(0x22FFFFFF) else Color(0x0DFFFFFF))
                     .border(1.dp, if (p?.id == 0) GoldMid else Color(0x22FFFFFF), RoundedCornerShape(16.dp))
@@ -597,11 +619,13 @@ private fun Lobby(
                     Spacer(Modifier.width(22.dp))
                     Text("Đang chờ người chơi…", color = TextMuted, fontSize = 15.sp)
                 } else {
+                    Spacer(Modifier.width(4.dp))
                     Avatar(
-                        p.name, p.palette, size = 46.dp, ring = p.id == 0, rating = "${p.rating}",
+                        p.name, p.palette, size = 42.dp, ring = p.id == 0, rating = "${p.rating}",
                         friend = p.personaId?.let { it in friends },
                         onAddFriend = { onAddFriend(p) },
                         art = p.avatar,
+                        cap = true,
                     )
                     Spacer(Modifier.width(26.dp))
                     Column(Modifier.weight(1f)) {
@@ -701,39 +725,3 @@ private fun Lobby(
     }
 }
 
-
-@Composable
-private fun StarOverlay(left: Int, onYes: () -> Unit, onNo: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xD9040A1E))
-            .clickable(enabled = false) {},
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("⭐", fontSize = 64.sp)
-            Spacer(Modifier.height(10.dp))
-            Text("NGÔI SAO HY VỌNG", color = Gold, fontSize = 26.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Đặt sao cho câu sắp tới?\nĐúng +20 · sai hoặc hết giờ −20\nMỗi trận chỉ dùng 1 lần.",
-                color = TextMain,
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                BlueButton(modifier = Modifier.width(130.dp).height(54.dp), onClick = onNo) {
-                    Text("Không", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-                GoldButton(modifier = Modifier.width(130.dp).height(54.dp), onClick = onYes) {
-                    Text("Đặt sao ⭐", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-            Text("Tự bỏ qua sau ${left}s", color = TextMuted, fontSize = 13.sp)
-        }
-    }
-}

@@ -86,8 +86,8 @@ object Personas {
             if (!used.add(name.lowercase())) continue
             val skill = (r.nextFloat().pow(1.35f)).coerceIn(0.05f, 0.98f)
             val f = fields.shuffled(r)
-            // Điểm xếp hạng khởi đầu: nhiều người quanh 100–400, ít người rất cao
-            val base = (60 + skill.pow(2.2f) * 1900 + r.nextInt(-40, 60)).roundToInt().coerceAtLeast(20)
+            // Điểm xếp hạng khởi đầu: khoảng 100–700, nhiều người ở mức thấp
+            val base = (100 + skill.pow(2.0f) * 560 + r.nextInt(-40, 60) * 0.5f).roundToInt().coerceAtLeast(60)
             out.add(
                 Persona(
                     id = "p%03d".format(out.size + 1),
@@ -132,7 +132,7 @@ object Personas {
         val start = day - 60
         for (d in start..day) {
             val v = h(p.id, d) % 100
-            if (abs(v) < 45) total += ((p.skill - 0.42f) * 14 + (v % 7)).roundToInt()
+            if (abs(v) < 45) total += (p.skill * 6 + abs(v) % 5).roundToInt()
         }
         return total
     }
@@ -158,7 +158,8 @@ object Personas {
     fun periodPoints(p: Persona, periodKey: String, fraction: Float): Int {
         val v = abs(h(p.id, periodKey)) % 100
         if (v < 25) return 0
-        return ((p.skill * 160 + v * 0.8f) * fraction).roundToInt()
+        val scale = if (periodKey.startsWith("w")) 1f else 4f
+        return ((p.skill * 25 + v * 0.2f) * scale * fraction).roundToInt()
     }
 }
 
@@ -178,7 +179,7 @@ class Ladder(context: Context) {
     fun ratingOf(p: Persona): Int {
         val raw = (p.baseRating + Personas.drift(p, today()) + deltas().optInt(p.id, 0)).coerceAtLeast(0)
         val k = topIds.indexOf(p.id)
-        return if (k < 0) raw else maxOf(raw, rating + 100 - k * 30)
+        return if (k < 0) raw else maxOf(raw, rating + 25 - k * 8)
     }
 
     fun addPersonaDelta(id: String, d: Int) {
@@ -214,30 +215,22 @@ class Ladder(context: Context) {
     }
 
     /**
-     * Cập nhật điểm sau trận (kiểu Elo nhiều người): so điểm với từng đối thủ.
+     * Cập nhật điểm sau trận theo thứ hạng: nhất +3, nhì +2, ba +1, người bét 0 (thua không trừ).
+     * Hòa điểm thì cùng hạng cao hơn. [reduced] = trận chỉ có người chơi trực tuyến ảo: +2/+1/+1/0.
      * [entries] gồm (mã persona hoặc null cho bạn, điểm xếp hạng trước trận, điểm trong trận).
-     * Trả về thay đổi điểm theo thứ tự [entries].
      */
-    fun applyMatch(entries: List<Triple<String?, Int, Int>>, gainFactor: Float = 1f): List<Int> {
-        val k = 32.0
-        val out = entries.mapIndexed { i, (_, r, s) ->
-            var sum = 0.0
-            for ((j, e2) in entries.withIndex()) {
-                if (j == i) continue
-                val (_, r2, s2) = e2
-                val exp = 1.0 / (1.0 + 10.0.pow((r2 - r) / 400.0))
-                val act = when {
-                    s > s2 -> 1.0
-                    s == s2 -> 0.5
-                    else -> 0.0
-                }
-                sum += act - exp
+    fun applyMatch(entries: List<Triple<String?, Int, Int>>, reduced: Boolean = false): List<Int> {
+        val low = entries.minOfOrNull { it.third } ?: 0
+        val out = entries.map { (_, _, s) ->
+            val rank = entries.count { it.third > s } + 1
+            val base = when {
+                rank == 1 -> 3
+                s == low -> 0
+                rank == 2 -> 2
+                rank == 3 -> 1
+                else -> 0
             }
-            var d = (k * sum / (entries.size - 1).coerceAtLeast(1)).roundToInt()
-            if (r < 300 && d < 0) d /= 2   // người mới mất ít điểm hơn
-            if (d > 0) d = (d * gainFactor).roundToInt()
-            if (r + d < 0) d = -r
-            d
+            if (reduced) when (base) { 3 -> 2; 2 -> 1; 1 -> 1; else -> 0 } else base
         }
         entries.forEachIndexed { i, e ->
             val id = e.first

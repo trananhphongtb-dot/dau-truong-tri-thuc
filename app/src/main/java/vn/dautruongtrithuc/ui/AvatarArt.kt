@@ -208,6 +208,45 @@ object AvatarArt {
         ),
     )
 
+    // Mũ cử nhân (vẽ tràn lên trên khung ảnh, tọa độ theo khung 100×100 của ảnh)
+    private val capOps: List<Op> = listOf(
+        P("M16 -24 L16 20 Q50 30 84 20 L84 -24 Z", c(0xFF1E3A8A), c(0xFF0B2A7A), 1.5f),
+        P("M16 14 Q50 24 84 14", null, c(0xFF3B5BDB), 2.5f),
+        P("M-20 -30 L50 -45 L120 -30 L50 -15 Z", c(0xFF2563EB), c(0xFF0B2A7A), 2f),
+        P("M-20 -30 L50 -15 L120 -30 L120 -25 L50 -10 L-20 -25 Z", c(0xFF1D4ED8)),
+        C(50f, -30f, 4f, c(0xFFFBBF24)),
+        P("M50 -30 L110 -27 L110 8", null, c(0xFFFBBF24), 3f),
+        P("M105 8 L115 8 L118 24 L102 24 Z", c(0xFFFBBF24)),
+    )
+
+    // Vòng nguyệt quế vàng hai nhánh ôm quanh ảnh, có nơ đỏ phía dưới
+    private val laurelOps: List<Op> = buildList {
+        for (side in listOf(-1, 1)) {
+            for (k in 0 until 8) {
+                val a = if (side < 0) 115f + k * 15f else 65f - k * 15f
+                val rad = Math.toRadians(a.toDouble())
+                val x = (50 + 57 * kotlin.math.cos(rad)).toFloat()
+                val y = (50 + 57 * kotlin.math.sin(rad)).toFloat()
+                add(E(x, y, 6f, 12f, c(0xFFFACC15), a + 90f + if (side < 0) 25f else -25f))
+            }
+        }
+        add(P("M38 104 L50 98 L62 104 L58 110 L50 106 L42 110Z", c(0xFFEF4444)))
+    }
+
+    @Composable
+    fun Cap(modifier: Modifier) = Overlay(capOps, modifier)
+
+    @Composable
+    fun Laurel(modifier: Modifier) = Overlay(laurelOps, modifier)
+
+    @Composable
+    private fun Overlay(ops: List<Op>, modifier: Modifier) {
+        Canvas(modifier) {
+            val s = size.minDimension / 100f
+            scale(s, s, pivot = Offset.Zero) { ops.forEach { draw(it) } }
+        }
+    }
+
     @Composable
     fun Draw(code: Int, modifier: Modifier) {
         val ops = if (code >= ICON_BASE) icons[(code - ICON_BASE) % icons.size] else face(code)

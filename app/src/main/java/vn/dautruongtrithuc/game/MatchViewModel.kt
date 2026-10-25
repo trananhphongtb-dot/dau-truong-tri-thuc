@@ -101,21 +101,20 @@ class MatchViewModel : ViewModel() {
     private val personas = HashMap<Int, Persona>()
     private var matchStarted = false
 
-    // Ngôi sao hy vọng (phần Về Đích): mỗi người 1 lần, đặt trước khi hiện câu hỏi
-    var starAsk by mutableStateOf(false)
+    // Ngôi sao hy vọng (phần Về Đích): bấm trong câu của mình để đặt cho câu tiếp theo của mình
+    var starId by mutableStateOf<Int?>(null)      // người có sao ở câu hiện tại
         private set
-    var starLeft by mutableIntStateOf(0)
+    var myNextStar by mutableStateOf(false)       // đã đặt sao cho câu sau chưa
         private set
-    var starId by mutableStateOf<Int?>(null)
+    var canStarNext by mutableStateOf(false)      // đang ở câu của mình và còn câu sau
         private set
-    private val starUsed = HashSet<Int>()
-    private var starDecision: Boolean? = null
+    private val pendingStar = HashSet<Int>()
 
-    fun setStar(yes: Boolean) {
-        if (starAsk) starDecision = yes
+    fun toggleStar() {
+        if (!canStarNext) return
+        myNextStar = !myNextStar
+        fx.play(if (myNextStar) "chime" else "tick")
     }
-
-    fun starAvailable(): Boolean = 0 !in starUsed
     private var rated = false
 
     /** Có người thật khác trong trận thì cộng đủ; toàn người chơi trực tuyến ảo thì cộng ít hơn. */
@@ -174,7 +173,7 @@ class MatchViewModel : ViewModel() {
         if (online && matchStarted && !rated && ::prefs.isInitialized) {
             val low = (players.minOfOrNull { it.score } ?: 0) - 1
             val entries = players.map { Triple(it.personaId, it.rating, if (it.id == 0) low else it.score) }
-            prefs.ladder.applyMatch(entries, gainFactor())
+            prefs.ladder.applyMatch(entries, reduced = gainFactor() < 1f)
             prefs.played = prefs.played + 1
             rated = true
         }
@@ -522,43 +521,17 @@ class MatchViewModel : ViewModel() {
                 mainChoice = null
                 mainDone = false
                 val isBotTurn = pid != 0
-                // Đặt ngôi sao hy vọng trước khi câu hỏi hiện ra
-                starId = null
-                question = null
-                if (pid == 0 && 0 !in starUsed) {
-                    banner = "Lượt của bạn"
-                    starDecision = null
-                    starAsk = true
-                    starLeft = 5
-                    val t0 = SystemClock.elapsedRealtime()
-                    while (starDecision == null && SystemClock.elapsedRealtime() - t0 < 5_000L) {
-                        starLeft = 5 - ((SystemClock.elapsedRealtime() - t0) / 1000).toInt()
-                        delay(50)
-                    }
-                    starAsk = false
-                    if (starDecision == true) {
-                        starId = 0
-                        starUsed.add(0)
-                        fx.play("chime")
-                        banner = "Bạn đặt ngôi sao hy vọng!"
-                        delay(1_200)
-                    }
-                } else if (pid != 0 && pid !in starUsed) {
-                    val risk = personas[pid]?.risk ?: 0.5f
-                    val chance = (if (r >= rounds - 1) 0.45f else 0.12f) + risk * 0.2f
-                    if (rnd.nextFloat() < chance || (r == rounds && rnd.nextFloat() < 0.5f)) {
-                        starId = pid
-                        starUsed.add(pid)
-                        fx.play("chime")
-                        banner = "${nameOf(pid)} đặt ngôi sao hy vọng!"
-                        delay(1_500)
-                    }
+                // Ngôi sao hy vọng đã đặt từ lượt trước
+                starId = if (pendingStar.remove(pid)) pid else null
+                if (pid == 0) {
+                    myNextStar = false
+                    canStarNext = r < rounds
                 }
                 val star = starId == pid
-                banner = if (pid == 0) {
-                    if (solo) "Lượt của bạn" else "Lượt của bạn · người khác có thể giành quyền"
-                } else {
-                    "Lượt của ${nameOf(pid)} · bạn có thể chọn trước để giành quyền"
+                banner = when {
+                    star -> "⭐ ${if (pid == 0) "Bạn" else nameOf(pid)} có ngôi sao hy vọng: đúng +20 · sai −20"
+                    pid == 0 -> if (solo) "Lượt của bạn" else "Lượt của bạn · người khác có thể giành quyền"
+                    else -> "Lượt của ${nameOf(pid)} · bạn có thể chọn trước để giành quyền"
                 }
                 show(q)
                 coroutineScope {
@@ -597,6 +570,15 @@ class MatchViewModel : ViewModel() {
                 }
                 reveal = true
                 fx.stopVoice()
+                // Chốt ngôi sao cho câu sau
+                if (pid == 0) {
+                    if (myNextStar) pendingStar.add(0)
+                    canStarNext = false
+                } else if (r < rounds) {
+                    val risk = personas[pid]?.risk ?: 0.5f
+                    val chance = 0.10f + risk * 0.25f + (if (r >= rounds - 2) 0.15f else 0f)
+                    if (rnd.nextFloat() < chance) pendingStar.add(pid)
+                }
                 val hc = humanChoice
                 if (pid == 0) result(q, hc == q.answer) else if (hc != null) result(q, hc == q.answer)
                 val msgs = ArrayList<String>()
@@ -646,7 +628,7 @@ class MatchViewModel : ViewModel() {
         prefs.played = prefs.played + 1
         if (online && !rated) {
             val entries = players.map { Triple(it.personaId, it.rating, it.score) }
-            val d = prefs.ladder.applyMatch(entries, gainFactor())
+            val d = prefs.ladder.applyMatch(entries, reduced = gainFactor() < 1f)
             for (i in players.indices) players[i] = players[i].copy(ratingDelta = d[i])
             rated = true
         }

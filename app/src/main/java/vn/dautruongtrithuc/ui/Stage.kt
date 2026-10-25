@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -110,7 +111,7 @@ private fun Podium(
     modifier: Modifier,
 ) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        ScorePopup(player.score)
+        Box(Modifier.zIndex(2f)) { ScorePopup(player.score) }
         Box {
             Avatar(
                 player.name, player.palette, size = 40.dp, ring = isTurn,
@@ -121,7 +122,20 @@ private fun Podium(
                 friend = isFriend,
                 onAddFriend = onAddFriend,
                 art = player.avatar,
+                cap = true,
             )
+            if (hasStar) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 8.dp, y = (-4).dp)
+                        .size(20.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(Navy1)
+                        .border(1.5.dp, Gold, androidx.compose.foundation.shape.CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { Text("★", color = Gold, fontSize = 13.sp, fontWeight = FontWeight.Black) }
+            }
             if (isLocked) {
                 Box(
                     Modifier
@@ -159,7 +173,7 @@ private fun Podium(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    (if (hasStar) "⭐ " else "") + player.name,
+                    player.name,
                     color = textColor,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,

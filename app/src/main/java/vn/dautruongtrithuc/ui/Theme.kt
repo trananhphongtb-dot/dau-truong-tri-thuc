@@ -94,9 +94,12 @@ fun Avatar(
     friend: Boolean? = null,
     onAddFriend: (() -> Unit)? = null,
     art: Int = -1,
+    cap: Boolean = false,
+    laurel: Boolean = false,
 ) {
     val p = AvatarPalettes[palette % AvatarPalettes.size]
     Box(Modifier.size(size)) {
+        if (laurel) AvatarArt.Laurel(Modifier.matchParentSize())
         Box(
             modifier = Modifier
                 .size(size)
@@ -114,6 +117,7 @@ fun Avatar(
                 fontSize = (size.value * 0.42f).sp,
             )
         }
+        if (cap) AvatarArt.Cap(Modifier.matchParentSize())
         if (rating != null) {
             Pill(
                 rating,
