@@ -22,6 +22,11 @@ class Prefs(context: Context) {
         get() = sp.getString("name", "Bạn") ?: "Bạn"
         set(value) { sp.edit().putString("name", value).apply() }
 
+    /** Mã ảnh đại diện của người chơi (−1 = chữ cái đầu tên). */
+    var avatar: Int
+        get() = sp.getInt("avatar", -1)
+        set(value) { sp.edit().putInt("avatar", value).apply() }
+
     var soundOn: Boolean
         get() = sp.getBoolean("sound", true)
         set(value) { sp.edit().putBoolean("sound", value).apply() }

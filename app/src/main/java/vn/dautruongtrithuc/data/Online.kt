@@ -27,6 +27,7 @@ data class Persona(
     val risk: Float,             // 0..1: hay giành quyền
     val baseRating: Int,
     val nightOwl: Boolean,
+    val avatar: Int = -1,        // mã ảnh đại diện (xem AvatarArt)
 )
 
 object Personas {
@@ -99,6 +100,14 @@ object Personas {
                     risk = r.nextFloat(),
                     baseRating = base,
                     nightOwl = r.nextBoolean(),
+                    avatar = Random(out.size * 977 + 13).let { ar ->
+                        val k = ar.nextInt(100)
+                        when {
+                            k < 40 -> ar.nextInt(0, 9999)
+                            k < 80 -> 10000 + ar.nextInt(15)
+                            else -> -1
+                        }
+                    },
                 )
             )
         }
@@ -237,7 +246,7 @@ class Ladder(context: Context) {
     }
 }
 
-data class BoardRow(val personaId: String?, val name: String, val palette: Int, val province: String, val value: Int)
+data class BoardRow(val personaId: String?, val name: String, val palette: Int, val province: String, val value: Int, val avatar: Int = -1)
 
 object Leaderboard {
     /** kind: 0 tất cả (điểm xếp hạng), 1 tuần, 2 tháng, 3 năm (điểm kiếm được trong kỳ). */
@@ -247,10 +256,10 @@ object Leaderboard {
         for (p in Personas.all) {
             val v = if (kind == 0) l.ratingOf(p) else Personas.periodPoints(p, l.periodKey(kind), l.periodFraction(kind))
             if (kind != 0 && v <= 0) continue
-            list.add(BoardRow(p.id, p.name, p.palette, p.province, v))
+            list.add(BoardRow(p.id, p.name, p.palette, p.province, v, p.avatar))
         }
         val mine = if (kind == 0) l.rating else l.myPeriodPoints(kind)
-        list.add(BoardRow(null, prefs.name.ifBlank { "Bạn" }, 0, "", mine))
+        list.add(BoardRow(null, prefs.name.ifBlank { "Bạn" }, 0, "", mine, prefs.avatar))
         return list.sortedWith(compareByDescending<BoardRow> { it.value }.thenBy { it.personaId != null })
     }
 

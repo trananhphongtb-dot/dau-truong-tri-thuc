@@ -24,7 +24,7 @@ import vn.dautruongtrithuc.data.QuestionBank
 import kotlin.random.Random
 
 /** bots = 0 là luyện tập một mình; level 0 dễ, 1 vừa, 2 khó; ranked = thi trực tuyến xếp hạng. */
-data class MatchConfig(val bots: Int, val level: Int, val ranked: Boolean = false)
+data class MatchConfig(val bots: Int, val level: Int, val ranked: Boolean = false, val room: Boolean = false)
 
 data class PlayerState(
     val id: Int,
@@ -36,9 +36,10 @@ data class PlayerState(
     val rating: Int = 0,
     val ratingDelta: Int? = null,
     val province: String = "",
+    val avatar: Int = -1,
 )
 
-enum class Phase { SEARCH, INTRO, PLAY, REVEAL, END }
+enum class Phase { LOBBY, SEARCH, INTRO, PLAY, REVEAL, END }
 
 val PART_NAMES = listOf("", "Khởi động", "Đấu Trí", "Về Đích")
 
@@ -82,6 +83,14 @@ class MatchViewModel : ViewModel() {
         private set
     var searchSec by mutableIntStateOf(0)
         private set
+    var room = false
+        private set
+    var roomCode by mutableStateOf("")
+        private set
+    private val startSignal = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+    /** Trận trực tuyến (xếp hạng hoặc phòng): người chơi trực tuyến cố gắng không thắng người thật. */
+    private val online get() = ranked || room
 
     private var started = false
     private var job: Job? = null
@@ -112,12 +121,13 @@ class MatchViewModel : ViewModel() {
         prefs = p
         fx = f
         ranked = config.ranked
-        solo = config.bots == 0 && !ranked
+        room = config.room
+        solo = config.bots == 0 && !ranked && !room
         pSeen = p.practiceSeen()
         pWrong = p.wrong()
         players.clear()
-        players.add(PlayerState(0, p.name.ifBlank { "Bạn" }, isBot = false, palette = 0, rating = p.ladder.rating))
-        if (!ranked) {
+        players.add(PlayerState(0, p.name.ifBlank { "Bạn" }, isBot = false, palette = 0, rating = p.ladder.rating, avatar = p.avatar))
+        if (!ranked && !room) {
             val names = listOf("An", "Bình", "Chi", "Dũng", "Hà", "Khoa", "Linh", "Nam").shuffled(rnd)
             repeat(config.bots.coerceIn(0, 3)) { i ->
                 players.add(PlayerState(i + 1, names[i], isBot = true, palette = i + 1))
@@ -125,6 +135,7 @@ class MatchViewModel : ViewModel() {
         }
         job = viewModelScope.launch {
             if (ranked) search()
+            if (room) lobby()
             intro(1)
             part1()
             intro(2)
@@ -185,16 +196,68 @@ class MatchViewModel : ViewModel() {
 
     // ------------------------------------------------------------------ Các phần thi
 
+    /** Chủ phòng bấm Bắt đầu. */
+    fun startRoom() {
+        if (phase == Phase.LOBBY && players.size >= 2) startSignal.complete(Unit)
+    }
+
+    /** Phòng chờ: 1–2 người chơi trực tuyến vào làm mồi; khi có người thật thì họ tự rời. */
+    private suspend fun lobby() = coroutineScope {
+        phase = Phase.LOBBY
+        roomCode = (100_000 + rnd.nextInt(900_000)).toString()
+        val want = if (rnd.nextFloat() < 0.5f) 1 else 2
+        val picks = pickPersonas(want)
+        val joiner = launch {
+            for ((k, pr) in picks.withIndex()) {
+                delay(rnd.nextLong(2_000L, 9_000L))
+                if (realCount() >= 2) break
+                addPersona(k + 1, pr.first, pr.second)
+            }
+        }
+        startSignal.await()
+        joiner.cancel()
+    }
+
+    private fun realCount() = players.count { !it.isBot }
+
+    /** Gọi khi một người thật vào phòng (khi có máy chủ). */
+    fun onRealPlayerJoined(p: PlayerState) {
+        players.add(p)
+        if (realCount() >= 2) {
+            players.removeAll { it.personaId != null }
+        } else {
+            players.lastOrNull { it.personaId != null }?.let { players.remove(it) }
+        }
+        personas.keys.retainAll(players.map { it.id }.toSet())
+    }
+
+    private fun pickPersonas(n: Int): List<Pair<Persona, Int>> {
+        val my = prefs.ladder.rating
+        val taken = players.mapNotNull { it.personaId }.toSet()
+        return Personas.all
+            .filter { it.id !in taken }
+            .map { it to prefs.ladder.ratingOf(it) }
+            .sortedBy { (_, r) -> kotlin.math.abs(r - my) + rnd.nextInt(0, 120) }
+            .take(24)
+            .shuffled(rnd)
+            .take(n)
+    }
+
+    private fun addPersona(id: Int, pp: Persona, r: Int) {
+        personas[id] = pp
+        players.add(
+            PlayerState(
+                id, pp.name, isBot = true, palette = pp.palette,
+                personaId = pp.id, rating = r, province = pp.province, avatar = pp.avatar,
+            )
+        )
+        fx.play("lock")
+    }
+
     /** Tìm đối thủ: người chơi lần lượt vào phòng. */
     private suspend fun search() {
         phase = Phase.SEARCH
-        val my = prefs.ladder.rating
-        val pool = Personas.all
-            .map { it to prefs.ladder.ratingOf(it) }
-            .sortedBy { (pp, r) -> kotlin.math.abs(r - my) + rnd.nextInt(0, 120) }
-            .take(24)
-            .shuffled(rnd)
-            .take(3)
+        val pool = pickPersonas(3)
         val totalMs = rnd.nextLong(3_000L, 12_000L)
         val joins = List(3) { rnd.nextLong(600L, totalMs) }.sorted()
         val t0 = SystemClock.elapsedRealtime()
@@ -204,14 +267,7 @@ class MatchViewModel : ViewModel() {
             searchSec = (el / 1000).toInt()
             if (el >= joins[next]) {
                 val (pp, r) = pool[next]
-                personas[next + 1] = pp
-                players.add(
-                    PlayerState(
-                        next + 1, pp.name, isBot = true, palette = pp.palette,
-                        personaId = pp.id, rating = r, province = pp.province,
-                    )
-                )
-                fx.play("lock")
+                addPersona(next + 1, pp, r)
                 next++
             }
             delay(100)
@@ -564,7 +620,20 @@ class MatchViewModel : ViewModel() {
             var a = 0.34f + p.skill * 0.56f - 0.07f * (level - 2)
             if (field in p.strong) a += 0.12f
             if (field in p.weak) a -= 0.12f
-            return a.coerceIn(0.12f, 0.96f)
+            a = a.coerceIn(0.12f, 0.96f)
+            if (online) {
+                // Cố gắng không vượt người thật: càng sát hoặc vượt thì càng hay sai
+                val me = players.firstOrNull { it.id == 0 }?.score ?: 0
+                val mine = players.firstOrNull { it.id == botId }?.score ?: 0
+                val gap = me - mine
+                a *= when {
+                    gap <= 0 -> 0.3f
+                    gap < 15 -> 0.65f
+                    gap < 30 -> 0.85f
+                    else -> 1f
+                }
+            }
+            return a
         }
         val base = when (cfg.level) {
             0 -> 0.50f

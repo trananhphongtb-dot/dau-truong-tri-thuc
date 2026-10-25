@@ -93,6 +93,7 @@ fun Avatar(
     rating: String? = null,
     friend: Boolean? = null,
     onAddFriend: (() -> Unit)? = null,
+    art: Int = -1,
 ) {
     val p = AvatarPalettes[palette % AvatarPalettes.size]
     Box(Modifier.size(size)) {
@@ -104,7 +105,9 @@ fun Avatar(
                 .border(if (ring) 3.dp else 2.dp, if (ring) GoldMid else Color.White.copy(alpha = 0.25f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
+            if (art >= 0) {
+                AvatarArt.Draw(art, Modifier.matchParentSize())
+            } else Text(
                 text = name.trim().take(1).uppercase(),
                 color = p.third,
                 fontWeight = FontWeight.ExtraBold,

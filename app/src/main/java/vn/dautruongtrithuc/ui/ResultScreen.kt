@@ -35,6 +35,7 @@ fun ResultScreen(
     winners: Set<Int>,
     solo: Boolean,
     ranked: Boolean = false,
+    room: Boolean = false,
     friends: Set<String> = emptySet(),
     onAddFriend: (PlayerState) -> Unit = {},
     onReplay: () -> Unit,
@@ -102,6 +103,7 @@ fun ResultScreen(
                         rating = if (p.personaId != null || p.id == 0) "${p.rating}" else "BOT",
                         friend = p.personaId?.let { it in friends },
                         onAddFriend = { onAddFriend(p) },
+                        art = p.avatar,
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -142,7 +144,8 @@ fun ResultScreen(
             if (ranked && me != null) {
                 val d = me.ratingDelta ?: 0
                 "Điểm xếp hạng: ${me.rating} → ${me.rating + d} (${if (d >= 0) "+$d" else "$d"})"
-            } else "Trận luyện tập không tính điểm xếp hạng.",
+            } else if (room) "Trận giao hữu không tính điểm xếp hạng."
+            else "Trận luyện tập không tính điểm xếp hạng.",
             color = TextMuted,
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
@@ -153,7 +156,7 @@ fun ResultScreen(
                 Text("Về sảnh", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             GoldButton(modifier = Modifier.weight(1f).height(52.dp), onClick = onReplay) {
-                Text(if (ranked) "Trận mới" else "Chơi lại", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(if (ranked) "Trận mới" else if (room) "Phòng mới" else "Chơi lại", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
             }
         }
         Spacer(Modifier.height(16.dp))

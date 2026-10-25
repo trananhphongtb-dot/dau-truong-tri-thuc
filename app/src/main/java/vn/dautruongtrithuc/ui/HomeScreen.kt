@@ -100,7 +100,7 @@ private fun TopBar(prefs: Prefs, nameVersion: Int) {
             Text("TRÍ THỨC", color = Gold, fontSize = 36.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
         }
         // nameVersion chỉ để buộc vẽ lại khi đổi tên
-        Avatar(if (nameVersion >= 0) prefs.name else "", 0, size = 50.dp, ring = true, rating = "${prefs.ladder.rating}")
+        Avatar(if (nameVersion >= 0) prefs.name else "", 0, size = 50.dp, ring = true, rating = "${prefs.ladder.rating}", art = prefs.avatar)
     }
 }
 
@@ -167,7 +167,9 @@ private fun PlayTab(onStart: (MatchConfig) -> Unit) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MenuTile("＋", "Tạo phòng", "Mời bạn bè", Modifier.weight(1f), onClick = soon)
+            MenuTile("＋", "Tạo phòng", "Mời bạn bè", Modifier.weight(1f)) {
+                if (OnlineConfig.FILL_ENABLED) onStart(MatchConfig(0, 1, room = true)) else soon()
+            }
             MenuTile("✎", "Luyện tập", "Thi một mình", Modifier.weight(1f)) { onStart(MatchConfig(0, 1)) }
         }
         MenuTile("◎", "Luyện với máy", "1–3 đối thủ máy · chọn độ khó", Modifier.fillMaxWidth()) { botDialog = true }
@@ -321,6 +323,7 @@ private fun BoardRowView(rank: Int, r: BoardRow, friends: Set<String>, period: I
             r.name, r.palette, size = 38.dp,
             friend = id?.let { it in friends },
             onAddFriend = { if (id != null) onAdd(id, r.name) },
+            art = r.avatar,
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -346,6 +349,8 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
     var editing by remember { mutableStateOf(false) }
     var friends by remember { mutableStateOf(prefs.friends()) }
     var removing by remember { mutableStateOf<String?>(null) }
+    var myArt by remember { mutableIntStateOf(prefs.avatar) }
+    var picking by remember { mutableStateOf(false) }
 
     TabColumn {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -361,7 +366,9 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
         }
         GlassCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(name.ifBlank { "B" }, 0, size = 64.dp, ring = true, rating = "${prefs.ladder.rating}")
+                Box(Modifier.clip(CircleShape).clickable { picking = true }) {
+                    Avatar(name.ifBlank { "B" }, 0, size = 64.dp, ring = true, rating = "${prefs.ladder.rating}", art = myArt)
+                }
                 Spacer(Modifier.width(22.dp))
                 if (editing) {
                     OutlinedTextField(
@@ -430,7 +437,7 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Avatar(fname, pp?.palette ?: (i + 1), size = 40.dp, friend = true,
-                        rating = pp?.let { "${prefs.ladder.ratingOf(it)}" })
+                        rating = pp?.let { "${prefs.ladder.ratingOf(it)}" }, art = pp?.avatar ?: -1)
                     Spacer(Modifier.width(22.dp))
                     Column(Modifier.weight(1f)) {
                         OneLine(fname, size = 15, weight = FontWeight.Bold)
@@ -445,6 +452,15 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
             }
         }
         Spacer(Modifier.height(8.dp))
+    }
+
+    if (picking) {
+        AvatarPicker(name, myArt, onDismiss = { picking = false }) {
+            myArt = it
+            prefs.avatar = it
+            picking = false
+            onNameChanged()
+        }
     }
 
     val r = removing
@@ -464,6 +480,44 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
             dismissButton = { TextButton(onClick = { removing = null }) { Text("Thôi", color = Gold) } },
         )
     }
+}
+
+@Composable
+private fun AvatarPicker(name: String, current: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+    var faceBase by remember { mutableIntStateOf(if (current in 0 until AvatarArt.ICON_BASE) current else 1) }
+    val faces = (0 until 10).map { (faceBase + it * 37) % AvatarArt.ICON_BASE }
+    val options = listOf(-1) + faces + (0 until AvatarArt.ICON_COUNT).map { AvatarArt.ICON_BASE + it }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Navy1,
+        title = { Text("Chọn ảnh đại diện", color = Gold, fontWeight = FontWeight.Black) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                options.chunked(4).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { code ->
+                            Box(
+                                Modifier
+                                    .clip(CircleShape)
+                                    .border(3.dp, if (code == current) Gold else Color.Transparent, CircleShape)
+                                    .clickable { onPick(code) }
+                                    .padding(3.dp),
+                            ) { Avatar(name.ifBlank { "B" }, 0, size = 52.dp, art = code) }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { faceBase = (faceBase + 389) % AvatarArt.ICON_BASE }) {
+                Text("Mặt khác ↻", color = Gold, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Đóng", color = TextMuted) } },
+    )
 }
 
 @Composable
