@@ -99,6 +99,11 @@ class MatchViewModel : ViewModel() {
     private lateinit var fx: SoundFx
     private val rnd = Random(System.nanoTime())
     private val personas = HashMap<Int, Persona>()
+    private var matchStarted = false
+    private var rated = false
+
+    /** Có người thật khác trong trận thì cộng đủ; toàn người chơi trực tuyến ảo thì cộng ít hơn. */
+    private fun gainFactor(): Float = if (players.any { it.id != 0 && it.personaId == null && !it.isBot }) 1f else 0.5f
     private val usedIds = HashSet<String>()
     private var pSeen: Set<String> = emptySet()
     private var pWrong: Set<String> = emptySet()
@@ -136,6 +141,7 @@ class MatchViewModel : ViewModel() {
         job = viewModelScope.launch {
             if (ranked) search()
             if (room) lobby()
+            matchStarted = true
             intro(1)
             part1()
             intro(2)
@@ -148,6 +154,14 @@ class MatchViewModel : ViewModel() {
 
     /** Dừng trận khi người chơi thoát giữa chừng. */
     fun stop() {
+        // Bỏ trận trực tuyến giữa chừng: tính thua, xếp cuối
+        if (online && matchStarted && !rated && ::prefs.isInitialized) {
+            val low = (players.minOfOrNull { it.score } ?: 0) - 1
+            val entries = players.map { Triple(it.personaId, it.rating, if (it.id == 0) low else it.score) }
+            prefs.ladder.applyMatch(entries, gainFactor())
+            prefs.played = prefs.played + 1
+            rated = true
+        }
         job?.cancel()
         flush()
         if (::fx.isInitialized) fx.stopVoice()
@@ -219,6 +233,20 @@ class MatchViewModel : ViewModel() {
     }
 
     private fun realCount() = players.count { !it.isBot }
+
+    /** Mời bạn (người chơi trực tuyến) đang rảnh vào phòng. */
+    fun inviteFriend(id: String): Boolean {
+        if (phase != Phase.LOBBY || players.size >= 4 || players.any { it.personaId == id }) return false
+        val pp = Personas.get(id) ?: return false
+        viewModelScope.launch {
+            delay(rnd.nextLong(1_000L, 3_000L))
+            if (phase == Phase.LOBBY && players.size < 4 && players.none { it.personaId == id }) {
+                val nextId = (1..3).first { k -> players.none { it.id == k } }
+                addPersona(nextId, pp, prefs.ladder.ratingOf(pp))
+            }
+        }
+        return true
+    }
 
     /** Gọi khi một người thật vào phòng (khi có máy chủ). */
     fun onRealPlayerJoined(p: PlayerState) {
@@ -563,10 +591,11 @@ class MatchViewModel : ViewModel() {
         val max = players.maxOf { it.score }
         winners = players.filter { it.score == max }.map { it.id }.toSet()
         prefs.played = prefs.played + 1
-        if (ranked) {
+        if (online && !rated) {
             val entries = players.map { Triple(it.personaId, it.rating, it.score) }
-            val d = prefs.ladder.applyMatch(entries)
+            val d = prefs.ladder.applyMatch(entries, gainFactor())
             for (i in players.indices) players[i] = players[i].copy(ratingDelta = d[i])
+            rated = true
         }
         val me = players.first { it.id == 0 }
         if (solo) {

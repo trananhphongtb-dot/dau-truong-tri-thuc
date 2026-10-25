@@ -94,7 +94,7 @@ fun MatchScreen(
             players = vm.players.toList(),
             winners = vm.winners,
             solo = vm.solo,
-            ranked = vm.ranked,
+            ranked = vm.ranked || vm.room,
             room = vm.room,
             friends = friends,
             onAddFriend = addFriend,
@@ -112,6 +112,8 @@ fun MatchScreen(
             onAddFriend = addFriend,
             onLeave = { vm.stop(); onHome() },
             onStart = { vm.startRoom() },
+            prefs = prefs,
+            onInvite = { vm.inviteFriend(it) },
         )
         return
     }
@@ -203,7 +205,7 @@ fun MatchScreen(
             title = { Text("Rời trận?", color = TextMain, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    if (vm.ranked && vm.phase != Phase.SEARCH) "Rời trận xếp hạng giữa chừng sẽ không được tính điểm."
+                    if ((vm.ranked || vm.room) && vm.phase != Phase.SEARCH) "Rời trận giữa chừng sẽ bị tính thua (xếp cuối)."
                     else if (vm.phase == Phase.SEARCH) "Dừng tìm đối thủ?"
                     else "Kết quả trận này sẽ không được lưu.",
                     color = TextMuted,
@@ -538,9 +540,13 @@ private fun Lobby(
     onAddFriend: (vn.dautruongtrithuc.game.PlayerState) -> Unit,
     onLeave: () -> Unit,
     onStart: () -> Unit,
+    prefs: Prefs,
+    onInvite: (String) -> Boolean,
 ) {
     val ctx = LocalContext.current
     var askLeave by remember { mutableStateOf(false) }
+    var inviting by remember { mutableStateOf(false) }
+    val invited = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     BackHandler { askLeave = true }
     Column(
         Modifier
@@ -554,15 +560,18 @@ private fun Lobby(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("PHÒNG CHỜ", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                Text("Mã phòng: $code", color = Gold, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                Text("Phòng #$code", color = Gold, fontSize = 24.sp, fontWeight = FontWeight.Black)
             }
             TextButton(onClick = {
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_TEXT, "Vào Đấu Trường Trí Thức thi với mình nhé! Mã phòng: $code")
+                    putExtra(android.content.Intent.EXTRA_TEXT, "Vào Đấu Trường Trí Thức thi với mình nhé! Bấm vào đây để vào phòng: ${vn.dautruongtrithuc.inviteLink(code)}")
                 }
                 ctx.startActivity(android.content.Intent.createChooser(send, "Mời bạn vào phòng"))
-            }) { Text("Mời ↗", color = Gold, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+            }) { Text("Gửi link ↗", color = Gold, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
+        }
+        BlueButton(modifier = Modifier.fillMaxWidth().height(46.dp), onClick = { inviting = true }) {
+            Text("＋ Mời bạn bè trong app", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
         for (i in 0 until 4) {
             val p = players.getOrNull(i)
@@ -601,7 +610,7 @@ private fun Lobby(
         }
         Spacer(Modifier.weight(1f))
         Text(
-            if (players.size < 2) "Cần ít nhất 2 người để bắt đầu" else "Trận giao hữu · không tính điểm xếp hạng",
+            if (players.size < 2) "Cần ít nhất 2 người để bắt đầu" else "Trận tính điểm xếp hạng",
             color = TextMuted,
             fontSize = 13.sp,
             modifier = Modifier.fillMaxWidth(),
@@ -624,6 +633,56 @@ private fun Lobby(
             }
         }
     }
+    if (inviting) {
+        val list = prefs.friends().mapNotNull { vn.dautruongtrithuc.data.Personas.get(it) }
+            .sortedByDescending { vn.dautruongtrithuc.data.Personas.isOnline(it) }
+        AlertDialog(
+            onDismissRequest = { inviting = false },
+            containerColor = Navy1,
+            title = { Text("Mời bạn bè", color = Gold, fontWeight = FontWeight.Black) },
+            text = {
+                if (list.isEmpty()) {
+                    Text("Chưa có bạn bè. Bấm dấu + trên ảnh người chơi để kết bạn.", color = TextMuted)
+                } else Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    list.forEach { pp ->
+                        val on = vn.dautruongtrithuc.data.Personas.isOnline(pp)
+                        val busy = on && vn.dautruongtrithuc.data.Personas.isBusy(pp)
+                        val inRoom = players.any { it.personaId == pp.id }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(pp.name, pp.palette, size = 38.dp, art = pp.avatar)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                OneLine(pp.name, size = 15, weight = FontWeight.Bold)
+                                Text(
+                                    when {
+                                        inRoom -> "Đã vào phòng"
+                                        !on -> "Ngoại tuyến"
+                                        busy -> "Đang trong trận"
+                                        pp.id in invited -> "Đang vào…"
+                                        else -> "Đang trực tuyến"
+                                    },
+                                    color = if (on && !busy) GreenOk else TextMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            if (on && !busy && !inRoom && pp.id !in invited) {
+                                TextButton(onClick = {
+                                    if (players.size >= 4) {
+                                        android.widget.Toast.makeText(ctx, "Phòng đã đủ 4 người", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else if (onInvite(pp.id)) invited.add(pp.id)
+                                }) { Text("Mời", color = Gold, fontWeight = FontWeight.Black) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { inviting = false }) { Text("Xong", color = Gold, fontWeight = FontWeight.Bold) } },
+        )
+    }
+
     if (askLeave) {
         AlertDialog(
             onDismissRequest = { askLeave = false },

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vào phòng · Đấu Trường Trí Thức</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(#1f4ca6,#071637);font-family:system-ui,Arial;color:#fff;text-align:center}
+.box{padding:28px 20px;max-width:360px}
+h1{color:#ffd45e;font-size:30px;margin:6px 0 4px;letter-spacing:1px}
+p{color:#a9bbe3;line-height:1.5}
+a.btn{display:block;margin:14px 0;padding:16px;border-radius:16px;font-weight:900;font-size:18px;text-decoration:none}
+.gold{background:linear-gradient(#ffe48a,#f2b52b);color:#2a1a00}
+.blue{background:#1d3f8f;color:#fff;border:1px solid #3a63c7}
+</style></head><body><div class="box">
+<div style="font-size:44px">⚔</div>
+<h1>ĐẤU TRƯỜNG<br>TRÍ THỨC</h1>
+<p id="msg">Bạn được mời vào phòng thi đấu.</p>
+<a class="btn gold" id="open" href="#">Mở trong app</a>
+<a class="btn blue" href="https://play.google.com/store/apps/details?id=vn.dautruongtrithuc">Chưa có app? Tải về</a>
+</div>
+<script>
+var r=(new URLSearchParams(location.search).get('r')||'').replace(/\D/g,'');
+if(r) document.getElementById('msg').textContent='Bạn được mời vào phòng #'+r+'.';
+var url='intent://join?r='+r+'#Intent;scheme=dttt;package=vn.dautruongtrithuc;S.browser_fallback_url='+encodeURIComponent('https://play.google.com/store/apps/details?id=vn.dautruongtrithuc')+';end';
+var a=document.getElementById('open');a.href=/android/i.test(navigator.userAgent)?url:'dttt://join?r='+r;
+if(/android/i.test(navigator.userAgent)&&r) setTimeout(function(){location.href=url},400);
+</script></body></html>

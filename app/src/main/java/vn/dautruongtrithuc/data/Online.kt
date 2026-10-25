@@ -151,6 +151,9 @@ object Personas {
         return abs(h(p.id, slot)) % 100 < base
     }
 
+    /** Đang thi trận khác (đổi mỗi 10 phút). */
+    fun isBusy(p: Persona): Boolean = abs(h(p.id, "busy", System.currentTimeMillis() / 600_000L)) % 100 < 30
+
     /** Điểm kiếm được trong một kỳ (tuần/tháng/năm) – xác định từ mã kỳ. */
     fun periodPoints(p: Persona, periodKey: String, fraction: Float): Int {
         val v = abs(h(p.id, periodKey)) % 100
@@ -169,8 +172,14 @@ class Ladder(context: Context) {
 
     private fun deltas(): JSONObject = try { JSONObject(sp.getString("pdelta", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
 
-    fun ratingOf(p: Persona): Int =
-        (p.baseRating + Personas.drift(p, today()) + deltas().optInt(p.id, 0)).coerceAtLeast(0)
+    // Ba người đứng đầu luôn giữ khoảng cách phía trên người chơi
+    private val topIds by lazy { Personas.all.sortedByDescending { it.baseRating }.take(3).map { it.id } }
+
+    fun ratingOf(p: Persona): Int {
+        val raw = (p.baseRating + Personas.drift(p, today()) + deltas().optInt(p.id, 0)).coerceAtLeast(0)
+        val k = topIds.indexOf(p.id)
+        return if (k < 0) raw else maxOf(raw, rating + 100 - k * 30)
+    }
 
     fun addPersonaDelta(id: String, d: Int) {
         val j = deltas()
@@ -209,7 +218,7 @@ class Ladder(context: Context) {
      * [entries] gồm (mã persona hoặc null cho bạn, điểm xếp hạng trước trận, điểm trong trận).
      * Trả về thay đổi điểm theo thứ tự [entries].
      */
-    fun applyMatch(entries: List<Triple<String?, Int, Int>>): List<Int> {
+    fun applyMatch(entries: List<Triple<String?, Int, Int>>, gainFactor: Float = 1f): List<Int> {
         val k = 32.0
         val out = entries.mapIndexed { i, (_, r, s) ->
             var sum = 0.0
@@ -226,6 +235,7 @@ class Ladder(context: Context) {
             }
             var d = (k * sum / (entries.size - 1).coerceAtLeast(1)).roundToInt()
             if (r < 300 && d < 0) d /= 2   // người mới mất ít điểm hơn
+            if (d > 0) d = (d * gainFactor).roundToInt()
             if (r + d < 0) d = -r
             d
         }

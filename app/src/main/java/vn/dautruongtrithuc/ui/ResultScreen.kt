@@ -156,7 +156,7 @@ fun ResultScreen(
                 Text("Về sảnh", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             GoldButton(modifier = Modifier.weight(1f).height(52.dp), onClick = onReplay) {
-                Text(if (ranked) "Trận mới" else if (room) "Phòng mới" else "Chơi lại", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(if (room) "Phòng mới" else if (ranked) "Trận mới" else "Chơi lại", color = Ink, fontWeight = FontWeight.Black, fontSize = 16.sp)
             }
         }
         Spacer(Modifier.height(16.dp))
