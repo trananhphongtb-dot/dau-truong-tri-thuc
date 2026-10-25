@@ -22,6 +22,7 @@ import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import vn.dautruongtrithuc.R
 
@@ -75,7 +76,12 @@ object Net {
         try {
             ref(".info/serverTimeOffset").addValueEventListener(simple { serverOffset = it.getValue(Long::class.java) ?: 0L })
             ref("config/fill").addValueEventListener(simple { fillEnabled = it.getValue(Boolean::class.java) ?: true })
-            auth.currentUser?.let { onSignedIn(it.uid) }
+            auth.currentUser?.let {
+                onSignedIn(it.uid)
+                if (p.photoMode == "google" && p.photo.isBlank()) {
+                    scope.launch { Photos.fromGoogle()?.let { b -> Photos.setMine(p, b, "google") } }
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "init", e)
         }
@@ -98,21 +104,34 @@ object Net {
                 val user = res.user ?: return "Đăng nhập không thành công"
                 val p = prefs
                 if (p != null && (p.name.isBlank() || p.name == "Bạn")) {
-                    g.displayName?.takeIf { it.isNotBlank() }?.let { p.name = it.take(16) }
+                    g.displayName?.takeIf { it.isNotBlank() }?.let { p.name = it.trim().take(15) }
+                }
+                justSignedIn = true
+                // Lấy ảnh Google ở phạm vi riêng: màn đăng nhập đóng lại cũng không bị ngắt
+                if (p != null && p.photoMode == "google" && p.photo.isBlank()) {
+                    scope.launch { Photos.fromGoogle()?.let { Photos.setMine(p, it, "google") } }
                 }
                 onSignedIn(user.uid)
-                if (p != null && p.photoMode == "google" && p.photo.isBlank()) {
-                    Photos.fromGoogle()?.let { Photos.setMine(p, it, "google") }
-                }
                 null
             } else {
                 "Không nhận được tài khoản Google"
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: androidx.credentials.exceptions.GetCredentialCancellationException) {
+            "Bạn đã hủy đăng nhập"
+        } catch (e: androidx.credentials.exceptions.NoCredentialException) {
+            "Máy chưa có tài khoản Google. Hãy thêm tài khoản Google trong Cài đặt của điện thoại."
         } catch (e: Exception) {
             Log.w(TAG, "signIn", e)
-            e.message ?: "Đăng nhập không thành công"
+            "Đăng nhập không thành công, kiểm tra mạng rồi thử lại"
         }
     }
+
+    /** Vừa đăng nhập xong: sảnh mở thẳng tab Tôi để xem hồ sơ. */
+    var justSignedIn by mutableStateOf(false)
+
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
 
     fun signOut() {
         setOnline(false)

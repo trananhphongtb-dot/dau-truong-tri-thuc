@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -66,7 +67,8 @@ import vn.dautruongtrithuc.game.MatchConfig
 
 @Composable
 fun HomeScreen(prefs: Prefs, fx: SoundFx, onStart: (MatchConfig) -> Unit) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(if (Net.justSignedIn) 2 else 0) }
+    LaunchedEffect(Unit) { Net.justSignedIn = false }
     var settings by rememberSaveable { mutableStateOf(false) }
     // Tăng mỗi khi đổi tên để thanh trên cùng vẽ lại
     var nameVersion by remember { mutableIntStateOf(0) }
@@ -107,7 +109,10 @@ private fun TopBar(prefs: Prefs, nameVersion: Int) {
             Text("TRÍ THỨC", color = Gold, fontSize = 36.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
         }
         // nameVersion chỉ để buộc vẽ lại khi đổi tên
-        Avatar(if (nameVersion >= 0) prefs.name else "", 0, size = 50.dp, ring = true, rating = "${prefs.ladder.rating}", me = true)
+        Avatar(
+            if (nameVersion >= 0) prefs.name else "", 0, size = 50.dp, ring = true, rating = "${prefs.ladder.rating}",
+            me = true, art = if (prefs.photo.isBlank()) prefs.avatar else -1,
+        )
     }
 }
 
@@ -384,14 +389,28 @@ private fun MeTab(prefs: Prefs, onOpenSettings: () -> Unit, onNameChanged: () ->
         }
         GlassCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.clip(CircleShape).clickable { picking = true }) {
-                    Avatar(name.ifBlank { "B" }, 0, size = 64.dp, ring = true, rating = "${prefs.ladder.rating}", me = true)
+                Box(Modifier.clickable { picking = true }) {
+                    Avatar(
+                        name.ifBlank { "B" }, 0, size = 64.dp, ring = true, rating = "${prefs.ladder.rating}",
+                        me = true, art = if (prefs.photo.isBlank()) prefs.avatar else -1,
+                    )
+                    // Nút bút chì để đổi ảnh
+                    Box(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = (-6).dp, y = (-6).dp)
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(Gold)
+                            .border(1.5.dp, Navy0, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("✎", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Black) }
                 }
                 Spacer(Modifier.width(22.dp))
                 if (editing) {
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { name = it.take(16) },
+                        onValueChange = { name = it.take(15) },
                         label = { Text("Tên hiển thị") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -555,13 +574,21 @@ private fun AvatarPicker(prefs: Prefs, onDismiss: () -> Unit, onDone: () -> Unit
             } else Toast.makeText(ctx, "Không đọc được ảnh này", Toast.LENGTH_SHORT).show()
         }
     }
+    // Ảnh hoạt cảnh có sẵn: con vật, cảnh vật và một số khuôn mặt vẽ
+    val arts = (0 until AvatarArt.ICON_COUNT).map { AvatarArt.ICON_BASE + it } + listOf(7, 23, 58, 91, 140, 233, 377, 610)
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Navy1,
-        title = { Text("Ảnh đại diện", color = Gold, fontWeight = FontWeight.Black) },
+        title = { Text("Đổi ảnh đại diện", color = Gold, fontWeight = FontWeight.Black) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                BlueButton(modifier = Modifier.fillMaxWidth().height(50.dp), onClick = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                BlueButton(modifier = Modifier.fillMaxWidth().height(48.dp), onClick = {
+                    if (!busy) pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text("🖼  Chọn ảnh từ thư viện", color = TextMain, fontWeight = FontWeight.Bold) }
+                BlueButton(modifier = Modifier.fillMaxWidth().height(48.dp), onClick = {
                     if (busy) return@BlueButton
                     busy = true
                     scope.launch {
@@ -569,18 +596,33 @@ private fun AvatarPicker(prefs: Prefs, onDismiss: () -> Unit, onDone: () -> Unit
                         busy = false
                         if (b64 != null) {
                             vn.dautruongtrithuc.data.Photos.setMine(prefs, b64, "google")
-                            onDone()
-                        } else Toast.makeText(ctx, "Tài khoản Google chưa có ảnh", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Tài khoản không có ảnh: hiện chữ cái đầu tên
+                            vn.dautruongtrithuc.data.Photos.setMine(prefs, "", "google")
+                            Toast.makeText(ctx, "Tài khoản Google chưa có ảnh, sẽ hiện chữ cái đầu tên", Toast.LENGTH_SHORT).show()
+                        }
+                        onDone()
                     }
-                }) { Text("Dùng ảnh Google", color = TextMain, fontWeight = FontWeight.Bold) }
-                BlueButton(modifier = Modifier.fillMaxWidth().height(50.dp), onClick = {
-                    if (!busy) pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) { Text("Chọn ảnh từ thư viện", color = TextMain, fontWeight = FontWeight.Bold) }
-                BlueButton(modifier = Modifier.fillMaxWidth().height(50.dp), onClick = {
-                    vn.dautruongtrithuc.data.Photos.setMine(prefs, "", "letter")
-                    onDone()
-                }) { Text("Chỉ hiện chữ cái", color = TextMain, fontWeight = FontWeight.Bold) }
+                }) { Text("G  Dùng ảnh Google", color = TextMain, fontWeight = FontWeight.Bold) }
                 if (busy) Text("Đang xử lý ảnh…", color = TextMuted, fontSize = 13.sp)
+                Text("Hoặc chọn ảnh hoạt cảnh", color = TextMuted, fontSize = 13.sp)
+                arts.chunked(4).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEach { code ->
+                            val on = prefs.photo.isBlank() && prefs.avatar == code
+                            Box(
+                                Modifier
+                                    .clip(CircleShape)
+                                    .border(3.dp, if (on) Gold else Color.Transparent, CircleShape)
+                                    .clickable {
+                                        vn.dautruongtrithuc.data.Photos.setMine(prefs, "", "art", code)
+                                        onDone()
+                                    }
+                                    .padding(3.dp),
+                            ) { Avatar(prefs.name.ifBlank { "B" }, 0, size = 50.dp, art = code) }
+                        }
+                    }
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Đóng", color = TextMuted) } },

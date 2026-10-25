@@ -32,7 +32,6 @@ object Photos {
     private val loading = HashSet<String>()
 
     fun init(prefs: Prefs) {
-        if (prefs.avatar >= 0) prefs.avatar = -1     // bỏ ảnh hoạt hình của bản cũ
         mine = decode(prefs.photo)
     }
 
@@ -78,10 +77,10 @@ object Photos {
     }
 
     /** Đặt ảnh của mình (chuỗi rỗng = chỉ hiện chữ cái) và gửi lên máy chủ. */
-    fun setMine(prefs: Prefs, b64: String, mode: String) {
+    fun setMine(prefs: Prefs, b64: String, mode: String, art: Int = -1) {
         prefs.photo = b64
         prefs.photoMode = mode
-        prefs.avatar = -1
+        prefs.avatar = art
         mine = decode(b64)
         Net.pushProfile()
     }
